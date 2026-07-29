@@ -11,9 +11,9 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 afk_users = {}  # user_id -> reason
-bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 @bot.event
@@ -123,6 +123,33 @@ async def joke(interaction: discord.Interaction):
         "Why did the developer go broke? Because they used up all their cache.",
     ]
     await interaction.response.send_message(f"😄 {random.choice(jokes)}")
+
+
+@bot.tree.command(name="afk", description="Set yourself as AFK")
+@app_commands.describe(reason="Why you're AFK (optional)")
+async def afk(interaction: discord.Interaction, reason: str = "busy"):
+    afk_users[interaction.user.id] = reason
+    await interaction.response.send_message(
+        f"You are now afk, reason: {reason}"
+    )
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    if message.author.id in afk_users:
+        del afk_users[message.author.id]
+        await message.channel.send(f"Welcome back {message.author.mention}, I removed your afk.")
+
+    for user in message.mentions:
+        if user.id in afk_users:
+            await message.channel.send(
+                f"{user.display_name} is afk: {afk_users[user.id]}"
+            )
+
+    await bot.process_commands(message)
 
 
 if __name__ == "__main__":
