@@ -57,7 +57,7 @@ def get_balance(user_id: int):
 
 
 def update_balance(user_id: int, wallet=None, bank=None, limit_amt=None):
-    bal = get_balance(user_id)  # ensures row exists
+    bal = get_balance(user_id)
     new_wallet = bal["wallet"] if wallet is None else wallet
     new_bank = bal["bank"] if bank is None else bank
     new_limit = bal["limit"] if limit_amt is None else limit_amt
@@ -81,6 +81,46 @@ def build_balance_text(user_id: int):
         f"┃ 📈 ʟɪᴍɪᴛ  : [ ${bal['limit']:,} ]\n"
         "┃\n"
         f"┃ 💠 ᴛᴏᴛᴀʟ  : [ ${total:,} ]\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def do_withdraw(user_id: int, amount: int):
+    bal = get_balance(user_id)
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["bank"]:
+        return "❌ You don't have that much in your bank."
+    update_balance(user_id, wallet=bal["wallet"] + amount, bank=bal["bank"] - amount)
+    new_bal = get_balance(user_id)
+    return (
+        "╭━━━〔 🏦 ᴡɪᴛʜᴅʀᴀᴡᴀʟ 〕━━━⬣\n"
+        "┃\n"
+        "┃ ✅ sᴜᴄᴄᴇssғᴜʟʟʏ ᴡɪᴛʜᴅʀᴇᴡ:\n"
+        f"┃ 💵 [ ${amount:,} ]\n"
+        "┃\n"
+        f"┃ 🏦 ʙᴀɴᴋ   : [ ${new_bal['bank']:,} ]\n"
+        f"┃ 🟡 ᴡᴀʟʟᴇᴛ : [ ${new_bal['wallet']:,} ]\n"
+        "┃\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def do_deposit(user_id: int, amount: int):
+    bal = get_balance(user_id)
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+    update_balance(user_id, wallet=bal["wallet"] - amount, bank=bal["bank"] + amount)
+    new_bal = get_balance(user_id)
+    return (
+        "╭━━━〔 💰 ᴅᴇᴘᴏsɪᴛ 〕━━━⬣\n"
+        "┃\n"
+        "┃ ✅ sᴜᴄᴄᴇssғᴜʟʟʏ ᴅᴇᴘᴏsɪᴛᴇᴅ:\n"
+        f"┃ 💵 [ ${amount:,} ]\n"
+        "┃\n"
+        f"┃ 🏦 ʙᴀɴᴋ   : [ ${new_bal['bank']:,} ]\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
@@ -293,6 +333,40 @@ async def bal(interaction: discord.Interaction):
 @bot.command(name="bal")
 async def bal_prefix(ctx: commands.Context):
     await ctx.send(build_balance_text(ctx.author.id))
+
+
+@bot.tree.command(name="withdraw", description="Withdraw money from your bank to your wallet")
+@app_commands.describe(amount="Amount to withdraw")
+async def withdraw(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
+
+
+@bot.tree.command(name="wd", description="Withdraw money from your bank to your wallet")
+@app_commands.describe(amount="Amount to withdraw")
+async def wd(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
+
+
+@bot.command(name="withdraw", aliases=["wd"])
+async def withdraw_prefix(ctx: commands.Context, amount: int):
+    await ctx.send(do_withdraw(ctx.author.id, amount))
+
+
+@bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
+@app_commands.describe(amount="Amount to deposit")
+async def deposit(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message(do_deposit(interaction.user.id, amount))
+
+
+@bot.tree.command(name="dep", description="Deposit money from your wallet to your bank")
+@app_commands.describe(amount="Amount to deposit")
+async def dep(interaction: discord.Interaction, amount: int):
+    await interaction.response.send_message(do_deposit(interaction.user.id, amount))
+
+
+@bot.command(name="deposit", aliases=["dep"])
+async def deposit_prefix(ctx: commands.Context, amount: int):
+    await ctx.send(do_deposit(ctx.author.id, amount))
 
 
 @bot.event
