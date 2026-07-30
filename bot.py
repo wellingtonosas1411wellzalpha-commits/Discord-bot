@@ -125,6 +125,35 @@ def do_deposit(user_id: int, amount: int):
     )
 
 
+def build_menu_text():
+    return (
+        "╭━━━〔 𝕮𝖔𝖒𝖒𝖆𝖓𝖉 𝕸𝖊𝖓𝖚 〕━━━⬣\n"
+        "┃\n"
+        "┃ 𝕱𝖚𝖓\n"
+        "┃ • ping — check bot latency\n"
+        "┃ • roll [dice] — roll dice, e.g. 2d6\n"
+        "┃ • flip — flip a coin\n"
+        "┃ • 8ball [question] — ask the magic 8-ball\n"
+        "┃ • joke — get a random joke\n"
+        "┃\n"
+        "┃ 𝕴𝖓𝖋𝖔\n"
+        "┃ • avatar [user] — get a user's avatar\n"
+        "┃ • userinfo [user] — get member info\n"
+        "┃ • poll [question] — create a yes/no poll\n"
+        "┃\n"
+        "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞\n"
+        "┃ • bal — check your balance\n"
+        "┃ • withdraw/wd [amount] — bank ➜ wallet\n"
+        "┃ • deposit/dep [amount] — wallet ➜ bank\n"
+        "┃\n"
+        "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
+        "┃ • afk [reason] — set yourself as afk\n"
+        "┃\n"
+        "┃ ✦ use / or . before any command\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -367,6 +396,16 @@ async def dep(interaction: discord.Interaction, amount: int):
 @bot.command(name="deposit", aliases=["dep"])
 async def deposit_prefix(ctx: commands.Context, amount: int):
     await ctx.send(do_deposit(ctx.author.id, amount))
+
+
+@bot.tree.command(name="menu", description="Show all bot commands")
+async def menu(interaction: discord.Interaction):
+    await interaction.response.send_message(build_menu_text())
+
+
+@bot.command(name="menu")
+async def menu_prefix(ctx: commands.Context):
+    await ctx.send(build_menu_text())
 
 
 @bot.event
