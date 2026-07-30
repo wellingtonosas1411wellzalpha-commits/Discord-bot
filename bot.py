@@ -58,7 +58,7 @@ def get_balance(user_id: int):
 
 
 def update_balance(user_id: int, wallet=None, bank=None, limit_amt=None):
-    bal = get_balance(user_id)
+    bal = get_balance(user_id)  # ensures row exists
     new_wallet = bal["wallet"] if wallet is None else wallet
     new_bank = bal["bank"] if bank is None else bank
     new_limit = bal["limit"] if limit_amt is None else limit_amt
@@ -86,8 +86,12 @@ def build_balance_text(user_id: int):
     )
 
 
-def do_withdraw(user_id: int, amount: int):
+def do_withdraw(user_id: int, amount_str: str):
     bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["bank"])
+    except ValueError:
+        return "❌ Invalid amount."
     if amount <= 0:
         return "❌ Enter an amount greater than $0."
     if amount > bal["bank"]:
@@ -107,8 +111,12 @@ def do_withdraw(user_id: int, amount: int):
     )
 
 
-def do_deposit(user_id: int, amount: int):
+def do_deposit(user_id: int, amount_str: str):
     bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
     if amount <= 0:
         return "❌ Enter an amount greater than $0."
     if amount > bal["wallet"]:
@@ -153,14 +161,19 @@ def build_menu_text():
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
+        "┃ • update — sync new bot features\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
 
-def parse_amount(amount_str: str):
-    cleaned = amount_str.replace(",", "").replace("$", "").strip()
+def parse_amount(amount_str: str, all_value: int = None):
+    cleaned = amount_str.replace(",", "").replace("$", "").strip().lower()
+    if cleaned == "all":
+        if all_value is None:
+            raise ValueError
+        return all_value
     return int(cleaned)
 
 
@@ -391,36 +404,36 @@ async def bal_prefix(ctx: commands.Context):
 
 
 @bot.tree.command(name="withdraw", description="Withdraw money from your bank to your wallet")
-@app_commands.describe(amount="Amount to withdraw")
-async def withdraw(interaction: discord.Interaction, amount: int):
+@app_commands.describe(amount="Amount to withdraw, or 'all'")
+async def withdraw(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
 
 
 @bot.tree.command(name="wd", description="Withdraw money from your bank to your wallet")
-@app_commands.describe(amount="Amount to withdraw")
-async def wd(interaction: discord.Interaction, amount: int):
+@app_commands.describe(amount="Amount to withdraw, or 'all'")
+async def wd(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
 
 
 @bot.command(name="withdraw", aliases=["wd"])
-async def withdraw_prefix(ctx: commands.Context, amount: int):
+async def withdraw_prefix(ctx: commands.Context, amount: str):
     await ctx.send(do_withdraw(ctx.author.id, amount))
 
 
 @bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
-@app_commands.describe(amount="Amount to deposit")
-async def deposit(interaction: discord.Interaction, amount: int):
+@app_commands.describe(amount="Amount to deposit, or 'all'")
+async def deposit(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_deposit(interaction.user.id, amount))
 
 
 @bot.tree.command(name="dep", description="Deposit money from your wallet to your bank")
-@app_commands.describe(amount="Amount to deposit")
-async def dep(interaction: discord.Interaction, amount: int):
+@app_commands.describe(amount="Amount to deposit, or 'all'")
+async def dep(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_deposit(interaction.user.id, amount))
 
 
 @bot.command(name="deposit", aliases=["dep"])
-async def deposit_prefix(ctx: commands.Context, amount: int):
+async def deposit_prefix(ctx: commands.Context, amount: str):
     await ctx.send(do_deposit(ctx.author.id, amount))
 
 
@@ -440,11 +453,11 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
     side = side.lower()
     if side not in ("heads", "tails"):
         return "❌ Choose `heads` or `tails`."
+    bal = get_balance(user_id)
     try:
-        amount = parse_amount(amount_str)
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
     except ValueError:
         return "❌ Invalid amount."
-    bal = get_balance(user_id)
     if amount <= 0:
         return "❌ Enter an amount greater than $0."
     if amount > bal["wallet"]:
@@ -536,11 +549,11 @@ async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_fu
     color_choice = color_choice.lower()
     if color_choice not in ("red", "black", "green"):
         return await send_func("❌ Choose `red`, `black`, or `green`.")
+    bal = get_balance(user_id)
     try:
-        amount = parse_amount(amount_str)
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
     except ValueError:
         return await send_func("❌ Invalid amount.")
-    bal = get_balance(user_id)
     if amount <= 0:
         return await send_func("❌ Enter an amount greater than $0.")
     if amount > bal["wallet"]:
@@ -589,6 +602,39 @@ async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     await run_roulette(ctx.author.id, color, amount, send_func, edit_func)
 
 
+# ---------- Update ----------
+
+async def run_update(send_func, edit_func):
+    sent = await send_func("🔎 Searching for updates from GitHub...")
+    await asyncio.sleep(60)
+    synced = await bot.tree.sync()
+    text = f"✅ Update complete! {len(synced)} command(s) are now synced and usable by members."
+    await edit_func(sent, text)
+
+
+@bot.tree.command(name="update", description="Check for and apply new bot updates")
+async def update(interaction: discord.Interaction):
+    async def send_func(text):
+        await interaction.response.send_message(text)
+        return await interaction.original_response()
+
+    async def edit_func(message, text):
+        await interaction.edit_original_response(content=text)
+
+    await run_update(send_func, edit_func)
+
+
+@bot.command(name="update")
+async def update_prefix(ctx: commands.Context):
+    async def send_func(text):
+        return await ctx.send(text)
+
+    async def edit_func(message, text):
+        await message.edit(content=text)
+
+    await run_update(send_func, edit_func)
+
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
@@ -610,4 +656,4 @@ async def on_message(message: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    bot.run(TOKEN) 
+    bot.run(TOKEN)
