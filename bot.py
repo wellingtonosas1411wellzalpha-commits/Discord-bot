@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import time
+import psutil
 import psycopg2
 
 import discord
@@ -11,6 +12,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+
+BOT_START_TIME = time.time()
+BOT_VERSION = "1.0.0"
+psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -177,9 +182,42 @@ def build_menu_text():
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
         "┃ • update — sync new bot features\n"
+        "┃ • storage — bot system status\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def format_uptime(seconds: float):
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h}h {m}m {s}s"
+
+
+def build_storage_text():
+    uptime = time.time() - BOT_START_TIME
+    mem = psutil.virtual_memory()
+    used_mb = mem.used / (1024 * 1024)
+    total_mb = mem.total / (1024 * 1024)
+    free_mb = mem.available / (1024 * 1024)
+    cpu = psutil.cpu_percent(interval=None)
+    return (
+        "⚙️ *Kiraizenin — System Status*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🕒 *Uptime:* {format_uptime(uptime)}\n"
+        f"💾 *Memory:* {used_mb:.0f}/{total_mb:.0f} MB ({mem.percent}%)\n"
+        f"🔋 *Free RAM:* {free_mb:.0f} MB\n"
+        f"🧠 *CPU Load:* {cpu}%\n"
+        f"📦 *Version:* {BOT_VERSION}\n"
+        "👑 *Owner:* kira\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🌐 *Update:* Available ✅\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "💬 *Status:* Running Smooth ⚡\n"
+        "> powered by kira Tech 🚀"
     )
 
 
@@ -656,6 +694,16 @@ async def update_prefix(ctx: commands.Context):
         await message.edit(content=text)
 
     await run_update(send_func, edit_func)
+
+
+@bot.tree.command(name="storage", description="Show bot system status")
+async def storage(interaction: discord.Interaction):
+    await interaction.response.send_message(build_storage_text())
+
+
+@bot.command(name="storage")
+async def storage_prefix(ctx: commands.Context):
+    await ctx.send(build_storage_text())
 
 
 @bot.event
