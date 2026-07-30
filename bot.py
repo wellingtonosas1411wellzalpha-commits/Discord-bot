@@ -1,5 +1,6 @@
 import os
 import random
+import psycopg2
 
 import discord
 from discord import app_commands
@@ -14,6 +15,74 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=".", intents=intents)
 
 afk_users = {}  # user_id -> reason
+
+DEFAULT_WALLET = 50000
+DEFAULT_BANK = 50000
+DEFAULT_LIMIT = 50000
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS balances (
+            user_id BIGINT PRIMARY KEY,
+            wallet BIGINT NOT NULL,
+            bank BIGINT NOT NULL,
+            limit_amt BIGINT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn, cur
+
+
+def get_balance(user_id: int):
+    conn, cur = get_db()
+    cur.execute("SELECT wallet, bank, limit_amt FROM balances WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            "INSERT INTO balances (user_id, wallet, bank, limit_amt) VALUES (%s, %s, %s, %s)",
+            (user_id, DEFAULT_WALLET, DEFAULT_BANK, DEFAULT_LIMIT),
+        )
+        conn.commit()
+        wallet, bank, limit_amt = DEFAULT_WALLET, DEFAULT_BANK, DEFAULT_LIMIT
+    else:
+        wallet, bank, limit_amt = row
+    cur.close()
+    conn.close()
+    return {"wallet": wallet, "bank": bank, "limit": limit_amt}
+
+
+def update_balance(user_id: int, wallet=None, bank=None, limit_amt=None):
+    bal = get_balance(user_id)  # ensures row exists
+    new_wallet = bal["wallet"] if wallet is None else wallet
+    new_bank = bal["bank"] if bank is None else bank
+    new_limit = bal["limit"] if limit_amt is None else limit_amt
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE balances SET wallet = %s, bank = %s, limit_amt = %s WHERE user_id = %s",
+        (new_wallet, new_bank, new_limit, user_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def build_balance_text(user_id: int):
+    bal = get_balance(user_id)
+    total = bal["wallet"] + bal["bank"]
+    return (
+        "╭━━━〔 💳 ᴀᴄᴄᴏᴜɴᴛ ʙᴀʟᴀɴᴄᴇ 〕━━━⬣\n"
+        f"┃ 💰 ᴡᴀʟʟᴇᴛ : [ ${bal['wallet']:,} ]\n"
+        f"┃ 🏦 ʙᴀɴᴋ   : [ ${bal['bank']:,} ]\n"
+        f"┃ 📈 ʟɪᴍɪᴛ  : [ ${bal['limit']:,} ]\n"
+        "┃\n"
+        f"┃ 💠 ᴛᴏᴛᴀʟ  : [ ${total:,} ]\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
 
 
 @bot.event
@@ -214,6 +283,16 @@ async def afk(interaction: discord.Interaction, reason: str = "busy"):
 async def afk_prefix(ctx: commands.Context, *, reason: str = "busy"):
     afk_users[ctx.author.id] = reason
     await ctx.send(f"You are now afk, reason: {reason}")
+
+
+@bot.tree.command(name="bal", description="Check your account balance")
+async def bal(interaction: discord.Interaction):
+    await interaction.response.send_message(build_balance_text(interaction.user.id))
+
+
+@bot.command(name="bal")
+async def bal_prefix(ctx: commands.Context):
+    await ctx.send(build_balance_text(ctx.author.id))
 
 
 @bot.event
