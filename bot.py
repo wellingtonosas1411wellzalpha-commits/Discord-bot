@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 import psycopg2
 
 import discord
@@ -146,12 +147,37 @@ def build_menu_text():
         "┃ • withdraw/wd [amount] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount] — wallet ➜ bank\n"
         "┃\n"
+        "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
+        "┃ • cf/coinflip [heads/tails] [amount]\n"
+        "┃ • roulette [red/black/green] [amount]\n"
+        "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
+
+
+def parse_amount(amount_str: str):
+    cleaned = amount_str.replace(",", "").replace("$", "").strip()
+    return int(cleaned)
+
+
+def do_roulette_spin():
+    number = random.randint(0, 36)
+    if number == 0:
+        color = "green"
+        color_display = "🟢 GREEN"
+    else:
+        red_numbers = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+        if number in red_numbers:
+            color = "red"
+            color_display = "🔴 RED"
+        else:
+            color = "black"
+            color_display = "⚫ BLACK"
+    return number, color, color_display
 
 
 @bot.event
@@ -408,6 +434,161 @@ async def menu_prefix(ctx: commands.Context):
     await ctx.send(build_menu_text())
 
 
+# ---------- Gambling ----------
+
+async def run_coinflip(user_id: int, side: str, amount_str: str):
+    side = side.lower()
+    if side not in ("heads", "tails"):
+        return "❌ Choose `heads` or `tails`."
+    try:
+        amount = parse_amount(amount_str)
+    except ValueError:
+        return "❌ Invalid amount."
+    bal = get_balance(user_id)
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    result = random.choice(["heads", "tails"])
+    result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
+    won = side == result
+
+    if won:
+        payout = amount * 2
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+        final_bal = get_balance(user_id)
+        return (
+            "🪙 *COINFLIP* 🪙\n"
+            "━━━━━━━━━━━━━━\n"
+            f"The coin landed on: *{result_display}*\n"
+            "━━━━━━━━━━━━━━\n"
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: *${payout:,}*\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+    else:
+        final_bal = get_balance(user_id)
+        return (
+            "🪙 *COINFLIP* 🪙\n"
+            "━━━━━━━━━━━━━━\n"
+            f"The coin landed on: *{result_display}*\n"
+            "━━━━━━━━━━━━━━\n"
+            "💥 *YOU LOST!* 💥\n"
+            "Better luck next time.\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+
+
+@bot.tree.command(name="cf", description="Bet on a coinflip")
+@app_commands.describe(side="heads or tails", amount="Amount to bet")
+async def cf(interaction: discord.Interaction, side: str, amount: str):
+    await interaction.response.send_message(await run_coinflip(interaction.user.id, side, amount))
+
+
+@bot.tree.command(name="coinflip", description="Bet on a coinflip")
+@app_commands.describe(side="heads or tails", amount="Amount to bet")
+async def coinflip(interaction: discord.Interaction, side: str, amount: str):
+    await interaction.response.send_message(await run_coinflip(interaction.user.id, side, amount))
+
+
+@bot.command(name="cf", aliases=["coinflip"])
+async def cf_prefix(ctx: commands.Context, side: str, amount: str):
+    await ctx.send(await run_coinflip(ctx.author.id, side, amount))
+
+
+def build_roulette_spinning_text(bet_display: str, color_choice: str):
+    return (
+        "🎡 *ROULETTE WHEEL* 🎡\n"
+        "━━━━━━━━━━━━━━\n"
+        f"Bet: *{bet_display}* on *{color_choice.upper()}*\n\n"
+        "🔄 Spinning the wheel..."
+    )
+
+
+def build_roulette_result_text(number, color_display, won, payout, wallet):
+    header = (
+        "🎡 *ROULETTE WHEEL* 🎡\n"
+        "━━━━━━━━━━━━━━\n"
+        f"The ball landed on: *{number} {color_display}*\n"
+        "━━━━━━━━━━━━━━\n"
+    )
+    if won:
+        return header + (
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: *${payout:,}*\n\n"
+            f"💵 Wallet: ${wallet:,}"
+        )
+    else:
+        return header + (
+            "💥 *YOU LOST!* 💥\n"
+            "Better luck next time.\n\n"
+            f"💵 Wallet: ${wallet:,}"
+        )
+
+
+ROULETTE_MULTIPLIER = {"red": 3, "black": 3, "green": 14}
+
+
+async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_func, edit_func):
+    color_choice = color_choice.lower()
+    if color_choice not in ("red", "black", "green"):
+        return await send_func("❌ Choose `red`, `black`, or `green`.")
+    try:
+        amount = parse_amount(amount_str)
+    except ValueError:
+        return await send_func("❌ Invalid amount.")
+    bal = get_balance(user_id)
+    if amount <= 0:
+        return await send_func("❌ Enter an amount greater than $0.")
+    if amount > bal["wallet"]:
+        return await send_func("❌ You don't have that much in your wallet.")
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    sent = await send_func(build_roulette_spinning_text(f"${amount:,}", color_choice))
+
+    await asyncio.sleep(5)
+
+    number, color, color_display = do_roulette_spin()
+    won = color == color_choice
+    if won:
+        payout = amount * ROULETTE_MULTIPLIER[color_choice]
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+    else:
+        payout = 0
+    final_bal = get_balance(user_id)
+
+    result_text = build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
+    await edit_func(sent, result_text)
+
+
+@bot.tree.command(name="roulette", description="Bet on roulette (red, black, or green)")
+@app_commands.describe(color="red, black, or green", amount="Amount to bet")
+async def roulette(interaction: discord.Interaction, color: str, amount: str):
+    async def send_func(text):
+        await interaction.response.send_message(text)
+        return await interaction.original_response()
+
+    async def edit_func(message, text):
+        await interaction.edit_original_response(content=text)
+
+    await run_roulette(interaction.user.id, color, amount, send_func, edit_func)
+
+
+@bot.command(name="roulette")
+async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
+    async def send_func(text):
+        return await ctx.send(text)
+
+    async def edit_func(message, text):
+        await message.edit(content=text)
+
+    await run_roulette(ctx.author.id, color, amount, send_func, edit_func)
+
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
@@ -429,4 +610,4 @@ async def on_message(message: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    bot.run(TOKEN)
+    bot.run(TOKEN) 
