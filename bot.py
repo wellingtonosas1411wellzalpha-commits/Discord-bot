@@ -92,6 +92,40 @@ def update_balance(user_id: int, wallet=None, bank=None, limit_amt=None):
     conn.close()
 
 
+def get_meta(key: str):
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bot_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.commit()
+    cur.execute("SELECT value FROM bot_meta WHERE key = %s", (key,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_meta(key: str, value: str):
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bot_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    cur.execute(
+        "INSERT INTO bot_meta (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (key, value),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def build_balance_text(user_id: int):
     bal = get_balance(user_id)
     total = bal["wallet"] + bal["bank"]
@@ -181,7 +215,6 @@ def build_menu_text():
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
-        "┃ • update — sync new bot features\n"
         "┃ • storage — bot system status\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
@@ -252,6 +285,27 @@ async def on_ready():
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
+        current_names = sorted(set(c.name for c in synced))
+        previous_raw = get_meta("command_list")
+        if previous_raw is not None:
+            previous_names = previous_raw.split(",") if previous_raw else []
+            new_ones = sorted(set(current_names) - set(previous_names))
+            if new_ones:
+                announcement = (
+                    "🚀 *Update Applied!*\n"
+                    f"New commands are now live: {', '.join('/' + n for n in new_ones)}\n"
+                    "Type `/menu` or `.menu` to see everything I can do!"
+                )
+                for guild in bot.guilds:
+                    for channel in guild.text_channels:
+                        perms = channel.permissions_for(guild.me)
+                        if perms.send_messages:
+                            try:
+                                await channel.send(announcement)
+                            except discord.HTTPException:
+                                pass
+                            break
+        set_meta("command_list", ",".join(current_names))
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
@@ -663,39 +717,6 @@ async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     await run_roulette(ctx.author.id, color, amount, send_func, edit_func)
 
 
-# ---------- Update ----------
-
-async def run_update(send_func, edit_func):
-    sent = await send_func("🔎 Searching for updates from GitHub...")
-    await asyncio.sleep(60)
-    synced = await bot.tree.sync()
-    text = f"✅ Update complete! {len(synced)} command(s) are now synced and usable by members."
-    await edit_func(sent, text)
-
-
-@bot.tree.command(name="update", description="Check for and apply new bot updates")
-async def update(interaction: discord.Interaction):
-    async def send_func(text):
-        await interaction.response.send_message(text)
-        return await interaction.original_response()
-
-    async def edit_func(message, text):
-        await interaction.edit_original_response(content=text)
-
-    await run_update(send_func, edit_func)
-
-
-@bot.command(name="update")
-async def update_prefix(ctx: commands.Context):
-    async def send_func(text):
-        return await ctx.send(text)
-
-    async def edit_func(message, text):
-        await message.edit(content=text)
-
-    await run_update(send_func, edit_func)
-
-
 @bot.tree.command(name="storage", description="Show bot system status")
 async def storage(interaction: discord.Interaction):
     await interaction.response.send_message(build_storage_text())
@@ -727,4 +748,4 @@ async def on_message(message: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    bot.run(TOKEN)
+    bot.run(TOKEN) 
