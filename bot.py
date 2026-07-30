@@ -1,6 +1,7 @@
 import os
 import random
 import asyncio
+import time
 import psycopg2
 
 import discord
@@ -16,6 +17,20 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=".", intents=intents)
 
 afk_users = {}  # user_id -> reason
+
+cf_cooldowns = {}  # user_id -> last used timestamp
+roulette_cooldowns = {}  # user_id -> last used timestamp
+CF_COOLDOWN_SECONDS = 60
+ROULETTE_COOLDOWN_SECONDS = 180
+
+
+def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
+    now = time.time()
+    last = cooldowns.get(user_id)
+    if last is not None and (now - last) < seconds:
+        return seconds - (now - last)
+    cooldowns[user_id] = now
+    return None
 
 DEFAULT_WALLET = 50000
 DEFAULT_BANK = 50000
@@ -152,12 +167,12 @@ def build_menu_text():
         "┃\n"
         "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞\n"
         "┃ • bal — check your balance\n"
-        "┃ • withdraw/wd [amount] — bank ➜ wallet\n"
-        "┃ • deposit/dep [amount] — wallet ➜ bank\n"
+        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
+        "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
         "┃\n"
         "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
-        "┃ • cf/coinflip [heads/tails] [amount]\n"
-        "┃ • roulette [red/black/green] [amount]\n"
+        "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
+        "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
@@ -463,6 +478,10 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
     if amount > bal["wallet"]:
         return "❌ You don't have that much in your wallet."
 
+    remaining = check_cooldown(cf_cooldowns, user_id, CF_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
     update_balance(user_id, wallet=bal["wallet"] - amount)
     result = random.choice(["heads", "tails"])
     result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
@@ -558,6 +577,10 @@ async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_fu
         return await send_func("❌ Enter an amount greater than $0.")
     if amount > bal["wallet"]:
         return await send_func("❌ You don't have that much in your wallet.")
+
+    remaining = check_cooldown(roulette_cooldowns, user_id, ROULETTE_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return await send_func(f"⏳ Slow down! Try again in {int(remaining) + 1}s.")
 
     update_balance(user_id, wallet=bal["wallet"] - amount)
     sent = await send_func(build_roulette_spinning_text(f"${amount:,}", color_choice))
