@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import time
+import math
 import gc
 import psutil
 import psycopg2
@@ -23,6 +24,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=".", intents=intents)
 
 afk_users = {}  # user_id -> reason
+
+active_mines_games = {}  # user_id -> game state
+MINES_HOUSE_EDGE = 0.97
 
 cf_cooldowns = {}  # user_id -> last used timestamp
 roulette_cooldowns = {}  # user_id -> last used timestamp
@@ -222,6 +226,8 @@ def build_menu_text():
         "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
         "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
         "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
+        "┃ • mines <bet> [mines] — start a mines game\n"
+        "┃   then .mines <1-25> to dig, .mines cashout to win\n"
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
@@ -386,6 +392,183 @@ def do_roulette_spin():
             color = "black"
             color_display = "⚫ BLACK"
     return number, color, color_display
+
+
+MINES_HELP_TEXT = (
+    "💣 *MINES CASINO* 💣\n"
+    "──────────────────\n"
+    "Find gems to multiply your coins, but avoid the hidden mines!\n\n"
+    "Usage: `.mines <bet> [mines_count]`\n"
+    "Example: `.mines 5000 3`\n\n"
+    "You can choose between 1 to 24 mines."
+)
+
+
+def build_mines_grid(game, exploded=False, hit_position=None):
+    lines = []
+    for row in range(5):
+        cells = []
+        for col in range(5):
+            pos = row * 5 + col + 1
+            if exploded:
+                if pos == hit_position:
+                    cells.append("💥")
+                elif pos in game["mine_positions"]:
+                    cells.append("💣")
+                elif pos in game["revealed"]:
+                    cells.append("💎")
+                else:
+                    cells.append("⬛")
+            else:
+                cells.append("💎" if pos in game["revealed"] else "⬛")
+        lines.append(" ".join(cells))
+    return "\n".join(lines)
+
+
+def mines_multiplier(mines_count: int, revealed_count: int):
+    safe_total = 25 - mines_count
+    if revealed_count == 0:
+        return 1.0
+    return math.comb(25, revealed_count) / math.comb(safe_total, revealed_count)
+
+
+def build_mines_started_text(game):
+    grid = build_mines_grid(game)
+    return (
+        "💣 *MINES GAME* 💣\n"
+        "──────────────────\n"
+        f"{grid}\n"
+        "──────────────────\n"
+        f"Bet: ${game['bet']:,}\n"
+        f"Mines: {game['mines_count']}\n\n"
+        "👉 Type `.mines <1-25>` to start digging!"
+    )
+
+
+def build_mines_progress_text(game):
+    grid = build_mines_grid(game)
+    safe_total = 25 - game["mines_count"]
+    revealed_count = len(game["revealed"])
+    multiplier = mines_multiplier(game["mines_count"], revealed_count) * MINES_HOUSE_EDGE
+    value = int(game["bet"] * multiplier)
+    return (
+        "💣 *MINES GAME* 💣\n"
+        "──────────────────\n"
+        f"{grid}\n"
+        "──────────────────\n"
+        f"💎 Gems: {revealed_count}/{safe_total}\n"
+        f"📈 Multiplier: {multiplier:.2f}x\n"
+        f"💰 Value: ${value:,}\n\n"
+        "👉 Type `.mines <1-25>` to dig.\n"
+        "👉 Type `.mines cashout` to win!"
+    )
+
+
+def build_mines_exploded_text(game, hit_position):
+    grid = build_mines_grid(game, exploded=True, hit_position=hit_position)
+    return (
+        "💣 *MINES: EXPLODED* 💣\n"
+        "──────────────────\n"
+        f"{grid}\n"
+        "──────────────────\n\n"
+        f"💥 BOOM! You hit a mine at square {hit_position}.\n"
+        f"Loss: ${game['bet']:,}"
+    )
+
+
+def start_mines(user_id: int, bet_str: str, mines_str: str = None):
+    if user_id in active_mines_games:
+        return "❌ You already have a mines game running. Finish it or `.mines cashout` first."
+
+    bal = get_balance(user_id)
+    try:
+        bet = parse_amount(bet_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid bet amount."
+    if bet <= 0:
+        return "❌ Enter a bet greater than $0."
+    if bet > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    mines_count = 3
+    if mines_str is not None:
+        try:
+            mines_count = int(mines_str)
+        except ValueError:
+            return "❌ Mines count must be a number between 1 and 24."
+    if not (1 <= mines_count <= 24):
+        return "❌ Choose between 1 and 24 mines."
+
+    update_balance(user_id, wallet=bal["wallet"] - bet)
+    mine_positions = set(random.sample(range(1, 26), mines_count))
+    active_mines_games[user_id] = {
+        "bet": bet,
+        "mines_count": mines_count,
+        "mine_positions": mine_positions,
+        "revealed": set(),
+    }
+    return build_mines_started_text(active_mines_games[user_id])
+
+
+def dig_mines(user_id: int, position_str: str):
+    game = active_mines_games.get(user_id)
+    if not game:
+        return "❌ No active mines game. Start one with `.mines <bet> [mines_count]`."
+
+    try:
+        position = int(position_str)
+    except ValueError:
+        return "❌ Choose a square between 1 and 25."
+    if not (1 <= position <= 25):
+        return "❌ Choose a square between 1 and 25."
+    if position in game["revealed"]:
+        return "❌ You already revealed that square."
+
+    if position in game["mine_positions"]:
+        text = build_mines_exploded_text(game, position)
+        del active_mines_games[user_id]
+        return text
+
+    game["revealed"].add(position)
+    safe_total = 25 - game["mines_count"]
+    if len(game["revealed"]) == safe_total:
+        multiplier = mines_multiplier(game["mines_count"], len(game["revealed"])) * MINES_HOUSE_EDGE
+        payout = int(game["bet"] * multiplier)
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + payout)
+        grid = build_mines_grid(game)
+        del active_mines_games[user_id]
+        return (
+            "💣 *MINES GAME* 💣\n"
+            "──────────────────\n"
+            f"{grid}\n"
+            "──────────────────\n\n"
+            f"🎉 ALL GEMS FOUND! Payout: ${payout:,}"
+        )
+
+    return build_mines_progress_text(game)
+
+
+def cashout_mines(user_id: int):
+    game = active_mines_games.get(user_id)
+    if not game:
+        return "❌ No active mines game to cash out."
+    if len(game["revealed"]) == 0:
+        return "❌ Reveal at least one square before cashing out."
+
+    multiplier = mines_multiplier(game["mines_count"], len(game["revealed"])) * MINES_HOUSE_EDGE
+    payout = int(game["bet"] * multiplier)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + payout)
+    grid = build_mines_grid(game)
+    del active_mines_games[user_id]
+    return (
+        "💣 *MINES GAME* 💣\n"
+        "──────────────────\n"
+        f"{grid}\n"
+        "──────────────────\n\n"
+        f"🎉 CASHED OUT! Payout: ${payout:,}"
+    )
 
 
 @bot.event
@@ -874,6 +1057,45 @@ async def dig(interaction: discord.Interaction):
 @bot.command(name="dig")
 async def dig_prefix(ctx: commands.Context):
     await ctx.send(do_dig(ctx.author.id))
+
+
+# ---------- Mines ----------
+
+@bot.command(name="mines")
+async def mines_prefix(ctx: commands.Context, *args):
+    user_id = ctx.author.id
+    if len(args) == 0:
+        await ctx.send(MINES_HELP_TEXT)
+        return
+    if args[0].lower() == "cashout":
+        await ctx.send(cashout_mines(user_id))
+        return
+    if user_id in active_mines_games:
+        if len(args) != 1:
+            await ctx.send("❌ Type `.mines <1-25>` to dig or `.mines cashout` to cash out.")
+            return
+        await ctx.send(dig_mines(user_id, args[0]))
+        return
+    bet_str = args[0]
+    mines_str = args[1] if len(args) > 1 else None
+    await ctx.send(start_mines(user_id, bet_str, mines_str))
+
+
+@bot.tree.command(name="mines", description="Start a mines game")
+@app_commands.describe(bet="Amount to bet, or 'all'", mines="Number of mines (1-24, default 3)")
+async def mines_start(interaction: discord.Interaction, bet: str, mines: int = 3):
+    await interaction.response.send_message(start_mines(interaction.user.id, bet, str(mines)))
+
+
+@bot.tree.command(name="minesdig", description="Dig a square in your mines game")
+@app_commands.describe(square="Square number (1-25)")
+async def minesdig(interaction: discord.Interaction, square: int):
+    await interaction.response.send_message(dig_mines(interaction.user.id, str(square)))
+
+
+@bot.tree.command(name="minescashout", description="Cash out your mines game")
+async def minescashout(interaction: discord.Interaction):
+    await interaction.response.send_message(cashout_mines(interaction.user.id))
 
 
 @bot.event
