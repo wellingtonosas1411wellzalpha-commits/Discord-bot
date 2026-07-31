@@ -26,8 +26,14 @@ afk_users = {}  # user_id -> reason
 
 cf_cooldowns = {}  # user_id -> last used timestamp
 roulette_cooldowns = {}  # user_id -> last used timestamp
+fish_cooldowns = {}
+beg_cooldowns = {}
+dig_cooldowns = {}
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
+FISH_COOLDOWN_SECONDS = 60
+BEG_COOLDOWN_SECONDS = 60
+DIG_COOLDOWN_SECONDS = 60
 
 
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
@@ -209,6 +215,9 @@ def build_menu_text():
         "┃ • bal — check your balance\n"
         "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
+        "┃ • fish — fish for coins (1m cd)\n"
+        "┃ • beg — beg for coins (1m cd)\n"
+        "┃ • dig — dig for coins (1m cd)\n"
         "┃\n"
         "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
         "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
@@ -271,6 +280,87 @@ def build_clearcache_text():
         "✅ *System optimized!*\n"
         "> powered by kira Tech 🚀"
     )
+
+
+FISH_CATCHES = [
+    ("Blue Fish", 300, 1500),
+    ("Old Boot", 50, 200),
+    ("Rainbow Trout", 500, 2000),
+    ("Golden Fish", 2000, 5000),
+    ("Tiny Minnow", 100, 400),
+    ("Treasure Chest", 3000, 8000),
+]
+
+BEG_LINES = [
+    "A wizard accidentally transmuted your shoe into {amount} coins. Worth it.",
+    "A stranger felt bad for you and handed over {amount} coins.",
+    "You found {amount} coins in an old coat pocket.",
+    "Someone tossed {amount} coins at you just to make you leave.",
+    "A kind old lady gave you {amount} coins for helping her cross the street.",
+]
+
+DIG_OUTCOMES = [
+    ("Dug up coins!", 500, 5000, True),
+    ("Found a rusty can. Better luck next time.", 0, 0, False),
+    ("Unearthed a small chest!", 1500, 6000, True),
+    ("Just dirt. Nothing here.", 0, 0, False),
+]
+
+
+def do_fish(user_id: int):
+    remaining = check_cooldown(fish_cooldowns, user_id, FISH_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    catch_name, low, high = random.choice(FISH_CATCHES)
+    amount = random.randint(low, high)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + amount)
+
+    return (
+        "╭━━━〔 🎣 FISHING 〕━━━⬣\n"
+        "┃\n"
+        "┃ You fished and caught:\n"
+        f"┃ 🐟 [ {catch_name} ]\n"
+        "┃\n"
+        f"┃ 💰 +${amount:,}\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def do_beg(user_id: int):
+    remaining = check_cooldown(beg_cooldowns, user_id, BEG_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    amount = random.randint(5, 500)
+    line = random.choice(BEG_LINES).format(amount=amount)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + amount)
+
+    return f"🙏 {line}\n💰 +${amount:,} coins"
+
+
+def do_dig(user_id: int):
+    remaining = check_cooldown(dig_cooldowns, user_id, DIG_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    outcome_text, low, high, won = random.choice(DIG_OUTCOMES)
+    amount = random.randint(low, high) if won else 0
+    if won:
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + amount)
+
+    body = (
+        "╭━━━〔 ⛏️ DIG RESULTS 〕━━━⬣\n"
+        "┃\n"
+        f"┃ ⛏️ {outcome_text}\n"
+    )
+    if won:
+        body += f"┃ 💰 REWARD: [ ${amount:,} ]\n"
+    body += "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    return body
 
 
 def parse_amount(amount_str: str, all_value: int = None):
@@ -756,6 +846,36 @@ async def clearcache_prefix(ctx: commands.Context):
     await ctx.send(build_clearcache_text())
 
 
+@bot.tree.command(name="fish", description="Go fishing for coins")
+async def fish(interaction: discord.Interaction):
+    await interaction.response.send_message(do_fish(interaction.user.id))
+
+
+@bot.command(name="fish")
+async def fish_prefix(ctx: commands.Context):
+    await ctx.send(do_fish(ctx.author.id))
+
+
+@bot.tree.command(name="beg", description="Beg for some coins")
+async def beg(interaction: discord.Interaction):
+    await interaction.response.send_message(do_beg(interaction.user.id))
+
+
+@bot.command(name="beg")
+async def beg_prefix(ctx: commands.Context):
+    await ctx.send(do_beg(ctx.author.id))
+
+
+@bot.tree.command(name="dig", description="Dig for buried coins")
+async def dig(interaction: discord.Interaction):
+    await interaction.response.send_message(do_dig(interaction.user.id))
+
+
+@bot.command(name="dig")
+async def dig_prefix(ctx: commands.Context):
+    await ctx.send(do_dig(ctx.author.id))
+
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
@@ -777,4 +897,4 @@ async def on_message(message: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    bot.run(TOKEN) 
+    bot.run(TOKEN)
