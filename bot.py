@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import time
+import gc
 import psutil
 import psycopg2
 
@@ -216,6 +217,7 @@ def build_menu_text():
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
         "┃ • storage — bot system status\n"
+        "┃ • clearcache — free up memory\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
@@ -250,6 +252,23 @@ def build_storage_text():
         "🌐 *Update:* Available ✅\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "💬 *Status:* Running Smooth ⚡\n"
+        "> powered by kira Tech 🚀"
+    )
+
+
+def build_clearcache_text():
+    process = psutil.Process()
+    before_mb = process.memory_info().rss / (1024 * 1024)
+    collected = gc.collect()
+    after_mb = process.memory_info().rss / (1024 * 1024)
+    freed_mb = max(0.0, before_mb - after_mb)
+    return (
+        "🧹 *Cache Cleared!*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🗑️ *Removed:* {collected} unused object(s)\n"
+        f"💾 *Freed:* {freed_mb:.2f} MB\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "✅ *System optimized!*\n"
         "> powered by kira Tech 🚀"
     )
 
@@ -725,6 +744,16 @@ async def storage(interaction: discord.Interaction):
 @bot.command(name="storage")
 async def storage_prefix(ctx: commands.Context):
     await ctx.send(build_storage_text())
+
+
+@bot.tree.command(name="clearcache", description="Clear the bot's cache and free up memory")
+async def clearcache(interaction: discord.Interaction):
+    await interaction.response.send_message(build_clearcache_text())
+
+
+@bot.command(name="clearcache")
+async def clearcache_prefix(ctx: commands.Context):
+    await ctx.send(build_clearcache_text())
 
 
 @bot.event
