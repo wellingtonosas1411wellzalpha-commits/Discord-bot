@@ -33,11 +33,13 @@ roulette_cooldowns = {}  # user_id -> last used timestamp
 fish_cooldowns = {}
 beg_cooldowns = {}
 dig_cooldowns = {}
+slot_cooldowns = {}
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
 FISH_COOLDOWN_SECONDS = 60
 BEG_COOLDOWN_SECONDS = 60
 DIG_COOLDOWN_SECONDS = 60
+SLOT_COOLDOWN_SECONDS = 60
 
 
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
@@ -228,6 +230,7 @@ def build_menu_text():
         "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
         "┃ • mines <bet> [mines] — start a mines game\n"
         "┃   then .mines <1-25> to dig, .mines cashout to win\n"
+        "┃ • slot [amount|all] — slot machine (1m cd)\n"
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
@@ -569,6 +572,65 @@ def cashout_mines(user_id: int):
         "──────────────────\n\n"
         f"🎉 CASHED OUT! Payout: ${payout:,}"
     )
+
+
+SLOT_SYMBOLS = ["🍒", "🍋", "💎", "🔔", "7️⃣"]
+SLOT_JACKPOT_MULTIPLIER = 10
+SLOT_WIN_MULTIPLIER = 2
+
+
+def do_slot(user_id: int, amount_str: str):
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    remaining = check_cooldown(slot_cooldowns, user_id, SLOT_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+    spin_display = " | ".join(spin)
+
+    counts = {s: spin.count(s) for s in set(spin)}
+    max_count = max(counts.values())
+
+    if max_count == 3:
+        payout = amount * SLOT_JACKPOT_MULTIPLIER
+    elif max_count == 2:
+        payout = amount * SLOT_WIN_MULTIPLIER
+    else:
+        payout = 0
+
+    if payout > 0:
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+    final_bal = get_balance(user_id)
+
+    header = (
+        "🎰 *AZAHRA SLOTS* 🎰\n"
+        "──────────────────\n"
+        f"[ {spin_display} ]\n"
+        "──────────────────\n"
+    )
+    if payout > 0:
+        return header + (
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: ${payout:,}\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+    else:
+        return header + (
+            "💥 *YOU LOST!* 💥\n"
+            "Better luck next time.\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
 
 
 @bot.event
@@ -1096,6 +1158,17 @@ async def minesdig(interaction: discord.Interaction, square: int):
 @bot.tree.command(name="minescashout", description="Cash out your mines game")
 async def minescashout(interaction: discord.Interaction):
     await interaction.response.send_message(cashout_mines(interaction.user.id))
+
+
+@bot.tree.command(name="slot", description="Play the slot machine")
+@app_commands.describe(amount="Amount to bet, or 'all'")
+async def slot(interaction: discord.Interaction, amount: str):
+    await interaction.response.send_message(do_slot(interaction.user.id, amount))
+
+
+@bot.command(name="slot")
+async def slot_prefix(ctx: commands.Context, amount: str):
+    await ctx.send(do_slot(ctx.author.id, amount))
 
 
 @bot.event
