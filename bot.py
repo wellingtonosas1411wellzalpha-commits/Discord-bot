@@ -579,25 +579,46 @@ SLOT_JACKPOT_MULTIPLIER = 10
 SLOT_WIN_MULTIPLIER = 2
 
 
-def do_slot(user_id: int, amount_str: str):
+def build_slot_spin_text(spin_display: str, footer: str = "🔄 Spinning..."):
+    return (
+        "🎰 *AZAHRA SLOTS* 🎰\n"
+        "──────────────────\n"
+        f"[ {spin_display} ]\n"
+        "──────────────────\n"
+        f"{footer}"
+    )
+
+
+def random_spin_display():
+    return " | ".join(random.choice(SLOT_SYMBOLS) for _ in range(3))
+
+
+async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
     bal = get_balance(user_id)
     try:
         amount = parse_amount(amount_str, all_value=bal["wallet"])
     except ValueError:
-        return "❌ Invalid amount."
+        return await send_func("❌ Invalid amount.")
     if amount <= 0:
-        return "❌ Enter an amount greater than $0."
+        return await send_func("❌ Enter an amount greater than $0.")
     if amount > bal["wallet"]:
-        return "❌ You don't have that much in your wallet."
+        return await send_func("❌ You don't have that much in your wallet.")
 
     remaining = check_cooldown(slot_cooldowns, user_id, SLOT_COOLDOWN_SECONDS)
     if remaining is not None:
-        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+        return await send_func(f"⏳ Slow down! Try again in {int(remaining) + 1}s.")
 
     update_balance(user_id, wallet=bal["wallet"] - amount)
+
+    sent = await send_func(build_slot_spin_text(random_spin_display()))
+    await asyncio.sleep(1)
+    await edit_func(sent, build_slot_spin_text(random_spin_display()))
+    await asyncio.sleep(1)
+    await edit_func(sent, build_slot_spin_text(random_spin_display()))
+    await asyncio.sleep(1)
+
     spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
     spin_display = " | ".join(spin)
-
     counts = {s: spin.count(s) for s in set(spin)}
     max_count = max(counts.values())
 
@@ -613,24 +634,12 @@ def do_slot(user_id: int, amount_str: str):
         update_balance(user_id, wallet=new_bal["wallet"] + payout)
     final_bal = get_balance(user_id)
 
-    header = (
-        "🎰 *AZAHRA SLOTS* 🎰\n"
-        "──────────────────\n"
-        f"[ {spin_display} ]\n"
-        "──────────────────\n"
-    )
     if payout > 0:
-        return header + (
-            "🎉 *YOU WON!* 🎉\n"
-            f"Payout: ${payout:,}\n\n"
-            f"💵 Wallet: ${final_bal['wallet']:,}"
-        )
+        footer = f"🎉 *YOU WON!* 🎉\nPayout: ${payout:,}\n\n💵 Wallet: ${final_bal['wallet']:,}"
     else:
-        return header + (
-            "💥 *YOU LOST!* 💥\n"
-            "Better luck next time.\n\n"
-            f"💵 Wallet: ${final_bal['wallet']:,}"
-        )
+        footer = f"💥 *YOU LOST!* 💥\nBetter luck next time.\n\n💵 Wallet: ${final_bal['wallet']:,}"
+
+    await edit_func(sent, build_slot_spin_text(spin_display, footer))
 
 
 @bot.event
@@ -1163,12 +1172,25 @@ async def minescashout(interaction: discord.Interaction):
 @bot.tree.command(name="slot", description="Play the slot machine")
 @app_commands.describe(amount="Amount to bet, or 'all'")
 async def slot(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_slot(interaction.user.id, amount))
+    async def send_func(text):
+        await interaction.response.send_message(text)
+        return await interaction.original_response()
+
+    async def edit_func(message, text):
+        await interaction.edit_original_response(content=text)
+
+    await run_slot(interaction.user.id, amount, send_func, edit_func)
 
 
 @bot.command(name="slot")
 async def slot_prefix(ctx: commands.Context, amount: str):
-    await ctx.send(do_slot(ctx.author.id, amount))
+    async def send_func(text):
+        return await ctx.send(text)
+
+    async def edit_func(message, text):
+        await message.edit(content=text)
+
+    await run_slot(ctx.author.id, amount, send_func, edit_func)
 
 
 @bot.event
