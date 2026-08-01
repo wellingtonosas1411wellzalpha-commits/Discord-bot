@@ -34,12 +34,14 @@ fish_cooldowns = {}
 beg_cooldowns = {}
 dig_cooldowns = {}
 slot_cooldowns = {}
+dice_cooldowns = {}
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
 FISH_COOLDOWN_SECONDS = 60
 BEG_COOLDOWN_SECONDS = 60
 DIG_COOLDOWN_SECONDS = 60
 SLOT_COOLDOWN_SECONDS = 60
+DICE_COOLDOWN_SECONDS = 60
 
 
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
@@ -207,8 +209,6 @@ def build_menu_text():
         "┃\n"
         "┃ 𝕱𝖚𝖓\n"
         "┃ • ping — check bot latency\n"
-        "┃ • roll [dice] — roll dice, e.g. 2d6\n"
-        "┃ • flip — flip a coin\n"
         "┃ • 8ball [question] — ask the magic 8-ball\n"
         "┃ • joke — get a random joke\n"
         "┃\n"
@@ -227,6 +227,7 @@ def build_menu_text():
         "┃\n"
         "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
         "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
+        "┃ • roll [amount|all] — dice roll, 4-6 wins (1m cd)\n"
         "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
         "┃ • mines <bet> [mines] — start a mines game\n"
         "┃   then .mines <1-25> to dig, .mines cashout to win\n"
@@ -642,6 +643,54 @@ async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
     await edit_func(sent, build_slot_spin_text(spin_display, footer))
 
 
+DICE_WIN_MULTIPLIER = 2
+
+
+def do_dice(user_id: int, amount_str: str):
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    remaining = check_cooldown(dice_cooldowns, user_id, DICE_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    roll = random.randint(1, 6)
+    won = roll >= 4
+
+    header = (
+        "🎲 *DICE ROLL* 🎲\n"
+        "──────────────────\n"
+        f"You rolled a: *{roll}*\n"
+        "──────────────────\n"
+    )
+
+    if won:
+        payout = amount * DICE_WIN_MULTIPLIER
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+        final_bal = get_balance(user_id)
+        return header + (
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: ${payout:,}\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+    else:
+        final_bal = get_balance(user_id)
+        return header + (
+            "💥 *YOU LOST!* 💥\n"
+            "Roll a 4, 5, or 6 to win next time.\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -698,14 +747,6 @@ def get_joke():
     return random.choice(jokes)
 
 
-def roll_dice(dice: str):
-    count, sides = map(int, dice.lower().split("d"))
-    if count < 1 or sides < 1 or count > 100:
-        raise ValueError
-    rolls = [random.randint(1, sides) for _ in range(count)]
-    return rolls, sum(rolls)
-
-
 def build_avatar_embed(user):
     embed = discord.Embed(title=f"{user.display_name}'s avatar")
     embed.set_image(url=user.display_avatar.url)
@@ -736,45 +777,6 @@ async def ping(interaction: discord.Interaction):
 async def ping_prefix(ctx: commands.Context):
     latency_ms = round(bot.latency * 1000)
     await ctx.send(f"🏓 Pong! {latency_ms}ms")
-
-
-@bot.tree.command(name="roll", description="Roll a dice, e.g. 2d6")
-@app_commands.describe(dice="Format: NdM (e.g. 2d6 rolls two 6-sided dice)")
-async def roll(interaction: discord.Interaction, dice: str = "1d6"):
-    try:
-        rolls, total = roll_dice(dice)
-    except ValueError:
-        await interaction.response.send_message(
-            "Invalid format. Use NdM, like `2d6`.", ephemeral=True
-        )
-        return
-    rolls_str = ", ".join(map(str, rolls))
-    await interaction.response.send_message(
-        f"🎲 Rolled {dice}: [{rolls_str}] = **{total}**"
-    )
-
-
-@bot.command(name="roll")
-async def roll_prefix(ctx: commands.Context, dice: str = "1d6"):
-    try:
-        rolls, total = roll_dice(dice)
-    except ValueError:
-        await ctx.send("Invalid format. Use NdM, like `2d6`.")
-        return
-    rolls_str = ", ".join(map(str, rolls))
-    await ctx.send(f"🎲 Rolled {dice}: [{rolls_str}] = **{total}**")
-
-
-@bot.tree.command(name="flip", description="Flip a coin")
-async def flip(interaction: discord.Interaction):
-    result = random.choice(["Heads", "Tails"])
-    await interaction.response.send_message(f"🪙 {result}!")
-
-
-@bot.command(name="flip")
-async def flip_prefix(ctx: commands.Context):
-    result = random.choice(["Heads", "Tails"])
-    await ctx.send(f"🪙 {result}!")
 
 
 @bot.tree.command(name="8ball", description="Ask the magic 8-ball a question")
@@ -1191,6 +1193,17 @@ async def slot_prefix(ctx: commands.Context, amount: str):
         await message.edit(content=text)
 
     await run_slot(ctx.author.id, amount, send_func, edit_func)
+
+
+@bot.tree.command(name="roll", description="Roll a dice and bet on 4-6 to win")
+@app_commands.describe(amount="Amount to bet, or 'all'")
+async def roll(interaction: discord.Interaction, amount: str):
+    await interaction.response.send_message(do_dice(interaction.user.id, amount))
+
+
+@bot.command(name="roll")
+async def roll_prefix(ctx: commands.Context, amount: str):
+    await ctx.send(do_dice(ctx.author.id, amount))
 
 
 @bot.event
