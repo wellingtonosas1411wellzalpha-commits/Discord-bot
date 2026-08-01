@@ -6,6 +6,8 @@ import math
 import gc
 import psutil
 import psycopg2
+import aiohttp
+from aiohttp import web
 
 import discord
 from discord import app_commands
@@ -14,6 +16,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+
+
+def did(discord_id) -> str:
+    """Namespaced key for a Discord user, so balances never collide with WhatsApp."""
+    return f"discord:{discord_id}"
+
+
+def wid(phone_number: str) -> str:
+    """Namespaced key for a WhatsApp user (by phone number)."""
+    return f"whatsapp:{phone_number}"
 
 BOT_START_TIME = time.time()
 BOT_VERSION = "1.0.0"
@@ -120,6 +132,10 @@ DEFAULT_BANK = 50000
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+WHATSAPP_OWNER_NUMBER = os.getenv("WHATSAPP_OWNER_NUMBER", "")
 
 
 def get_db():
@@ -127,7 +143,7 @@ def get_db():
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS balances (
-            user_id BIGINT PRIMARY KEY,
+            user_id TEXT PRIMARY KEY,
             wallet BIGINT NOT NULL,
             bank BIGINT NOT NULL,
             limit_amt BIGINT NOT NULL
@@ -135,6 +151,41 @@ def get_db():
     """)
     conn.commit()
     return conn, cur
+
+
+def migrate_db():
+    """One-time migration: convert an existing bigint user_id column to text
+    so both Discord and WhatsApp IDs can share the same balances table."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS balances (
+                user_id TEXT PRIMARY KEY,
+                wallet BIGINT NOT NULL,
+                bank BIGINT NOT NULL,
+                limit_amt BIGINT NOT NULL
+            )
+        """)
+        conn.commit()
+        try:
+            cur.execute("ALTER TABLE balances ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        try:
+            cur.execute("""
+                UPDATE balances SET user_id = 'discord:' || user_id
+                WHERE user_id !~ '^(discord|whatsapp):'
+            """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        cur.close()
+        conn.close()
+        print("Database migration check complete.")
+    except Exception as e:
+        print(f"Database migration skipped/failed: {e}")
 
 
 def get_balance(user_id: int):
@@ -809,7 +860,7 @@ def do_donate(sender_id: int, receiver_id: int, amount_str: str):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"Logged in as {bot.user} (ID: {bot.did(user.id)})")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
@@ -969,7 +1020,7 @@ async def joke_prefix(ctx: commands.Context):
 @bot.tree.command(name="afk", description="Set yourself as AFK")
 @app_commands.describe(reason="Why you're AFK (optional)")
 async def afk(interaction: discord.Interaction, reason: str = "busy"):
-    afk_users[interaction.user.id] = reason
+    afk_users[did(interaction.user.id)] = reason
     await interaction.response.send_message(
         f"You are now afk, reason: {reason}"
     )
@@ -977,52 +1028,52 @@ async def afk(interaction: discord.Interaction, reason: str = "busy"):
 
 @bot.command(name="afk")
 async def afk_prefix(ctx: commands.Context, *, reason: str = "busy"):
-    afk_users[ctx.author.id] = reason
+    afk_users[did(ctx.author.id)] = reason
     await ctx.reply(f"You are now afk, reason: {reason}")
 
 
 @bot.tree.command(name="bal", description="Check your account balance")
 async def bal(interaction: discord.Interaction):
-    await interaction.response.send_message(build_balance_text(interaction.user.id))
+    await interaction.response.send_message(build_balance_text(did(interaction.user.id)))
 
 
 @bot.command(name="bal")
 async def bal_prefix(ctx: commands.Context):
-    await ctx.reply(build_balance_text(ctx.author.id))
+    await ctx.reply(build_balance_text(did(ctx.author.id)))
 
 
 @bot.tree.command(name="withdraw", description="Withdraw money from your bank to your wallet")
 @app_commands.describe(amount="Amount to withdraw, or 'all'")
 async def withdraw(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
+    await interaction.response.send_message(do_withdraw(did(interaction.user.id), amount))
 
 
 @bot.tree.command(name="wd", description="Withdraw money from your bank to your wallet")
 @app_commands.describe(amount="Amount to withdraw, or 'all'")
 async def wd(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_withdraw(interaction.user.id, amount))
+    await interaction.response.send_message(do_withdraw(did(interaction.user.id), amount))
 
 
 @bot.command(name="withdraw", aliases=["wd"])
 async def withdraw_prefix(ctx: commands.Context, amount: str):
-    await ctx.reply(do_withdraw(ctx.author.id, amount))
+    await ctx.reply(do_withdraw(did(ctx.author.id), amount))
 
 
 @bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
 @app_commands.describe(amount="Amount to deposit, or 'all'")
 async def deposit(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_deposit(interaction.user.id, amount))
+    await interaction.response.send_message(do_deposit(did(interaction.user.id), amount))
 
 
 @bot.tree.command(name="dep", description="Deposit money from your wallet to your bank")
 @app_commands.describe(amount="Amount to deposit, or 'all'")
 async def dep(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_deposit(interaction.user.id, amount))
+    await interaction.response.send_message(do_deposit(did(interaction.user.id), amount))
 
 
 @bot.command(name="deposit", aliases=["dep"])
 async def deposit_prefix(ctx: commands.Context, amount: str):
-    await ctx.reply(do_deposit(ctx.author.id, amount))
+    await ctx.reply(do_deposit(did(ctx.author.id), amount))
 
 
 @bot.tree.command(name="menu", description="Show all bot commands")
@@ -1090,18 +1141,18 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
 @bot.tree.command(name="cf", description="Bet on a coinflip")
 @app_commands.describe(side="heads or tails", amount="Amount to bet")
 async def cf(interaction: discord.Interaction, side: str, amount: str):
-    await interaction.response.send_message(await run_coinflip(interaction.user.id, side, amount))
+    await interaction.response.send_message(await run_coinflip(did(interaction.user.id), side, amount))
 
 
 @bot.tree.command(name="coinflip", description="Bet on a coinflip")
 @app_commands.describe(side="heads or tails", amount="Amount to bet")
 async def coinflip(interaction: discord.Interaction, side: str, amount: str):
-    await interaction.response.send_message(await run_coinflip(interaction.user.id, side, amount))
+    await interaction.response.send_message(await run_coinflip(did(interaction.user.id), side, amount))
 
 
 @bot.command(name="cf", aliases=["coinflip"])
 async def cf_prefix(ctx: commands.Context, side: str, amount: str):
-    await ctx.reply(await run_coinflip(ctx.author.id, side, amount))
+    await ctx.reply(await run_coinflip(did(ctx.author.id), side, amount))
 
 
 def build_roulette_spinning_text(bet_display: str, color_choice: str):
@@ -1184,7 +1235,7 @@ async def roulette(interaction: discord.Interaction, color: str, amount: str):
     async def edit_func(message, text):
         await interaction.edit_original_response(content=text)
 
-    await run_roulette(interaction.user.id, color, amount, send_func, edit_func)
+    await run_roulette(did(interaction.user.id), color, amount, send_func, edit_func)
 
 
 @bot.command(name="roulette")
@@ -1195,7 +1246,7 @@ async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     async def edit_func(message, text):
         await message.edit(content=text)
 
-    await run_roulette(ctx.author.id, color, amount, send_func, edit_func)
+    await run_roulette(did(ctx.author.id), color, amount, send_func, edit_func)
 
 
 @bot.tree.command(name="storage", description="[Owner only] Show bot system status")
@@ -1228,39 +1279,39 @@ async def clearcache_prefix(ctx: commands.Context):
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
 async def fish(interaction: discord.Interaction):
-    await interaction.response.send_message(do_fish(interaction.user.id))
+    await interaction.response.send_message(do_fish(did(interaction.user.id)))
 
 
 @bot.command(name="fish")
 async def fish_prefix(ctx: commands.Context):
-    await ctx.reply(do_fish(ctx.author.id))
+    await ctx.reply(do_fish(did(ctx.author.id)))
 
 
 @bot.tree.command(name="beg", description="Beg for some coins")
 async def beg(interaction: discord.Interaction):
-    await interaction.response.send_message(do_beg(interaction.user.id))
+    await interaction.response.send_message(do_beg(did(interaction.user.id)))
 
 
 @bot.command(name="beg")
 async def beg_prefix(ctx: commands.Context):
-    await ctx.reply(do_beg(ctx.author.id))
+    await ctx.reply(do_beg(did(ctx.author.id)))
 
 
 @bot.tree.command(name="dig", description="Dig for buried coins")
 async def dig(interaction: discord.Interaction):
-    await interaction.response.send_message(do_dig(interaction.user.id))
+    await interaction.response.send_message(do_dig(did(interaction.user.id)))
 
 
 @bot.command(name="dig")
 async def dig_prefix(ctx: commands.Context):
-    await ctx.reply(do_dig(ctx.author.id))
+    await ctx.reply(do_dig(did(ctx.author.id)))
 
 
 # ---------- Mines ----------
 
 @bot.command(name="mines")
 async def mines_prefix(ctx: commands.Context, *args):
-    user_id = ctx.author.id
+    user_id = did(ctx.author.id)
     if len(args) == 0:
         await ctx.reply(MINES_HELP_TEXT)
         return
@@ -1281,18 +1332,18 @@ async def mines_prefix(ctx: commands.Context, *args):
 @bot.tree.command(name="mines", description="Start a mines game")
 @app_commands.describe(bet="Amount to bet, or 'all'", mines="Number of mines (1-24, default 3)")
 async def mines_start(interaction: discord.Interaction, bet: str, mines: int = 3):
-    await interaction.response.send_message(start_mines(interaction.user.id, bet, str(mines)))
+    await interaction.response.send_message(start_mines(did(interaction.user.id), bet, str(mines)))
 
 
 @bot.tree.command(name="minesdig", description="Dig a square in your mines game")
 @app_commands.describe(square="Square number (1-25)")
 async def minesdig(interaction: discord.Interaction, square: int):
-    await interaction.response.send_message(dig_mines(interaction.user.id, str(square)))
+    await interaction.response.send_message(dig_mines(did(interaction.user.id), str(square)))
 
 
 @bot.tree.command(name="minescashout", description="Cash out your mines game")
 async def minescashout(interaction: discord.Interaction):
-    await interaction.response.send_message(cashout_mines(interaction.user.id))
+    await interaction.response.send_message(cashout_mines(did(interaction.user.id)))
 
 
 @bot.tree.command(name="slot", description="Play the slot machine")
@@ -1305,7 +1356,7 @@ async def slot(interaction: discord.Interaction, amount: str):
     async def edit_func(message, text):
         await interaction.edit_original_response(content=text)
 
-    await run_slot(interaction.user.id, amount, send_func, edit_func)
+    await run_slot(did(interaction.user.id), amount, send_func, edit_func)
 
 
 @bot.command(name="slot")
@@ -1316,28 +1367,28 @@ async def slot_prefix(ctx: commands.Context, amount: str):
     async def edit_func(message, text):
         await message.edit(content=text)
 
-    await run_slot(ctx.author.id, amount, send_func, edit_func)
+    await run_slot(did(ctx.author.id), amount, send_func, edit_func)
 
 
 @bot.tree.command(name="roll", description="Roll a dice and bet on 4-6 to win")
 @app_commands.describe(amount="Amount to bet, or 'all'")
 async def roll(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_dice(interaction.user.id, amount))
+    await interaction.response.send_message(do_dice(did(interaction.user.id), amount))
 
 
 @bot.command(name="roll")
 async def roll_prefix(ctx: commands.Context, amount: str):
-    await ctx.reply(do_dice(ctx.author.id, amount))
+    await ctx.reply(do_dice(did(ctx.author.id), amount))
 
 
 @bot.tree.command(name="cooldowns", description="Show your active cooldowns")
 async def cooldowns(interaction: discord.Interaction):
-    await interaction.response.send_message(build_cooldowns_text(interaction.user.id))
+    await interaction.response.send_message(build_cooldowns_text(did(interaction.user.id)))
 
 
 @bot.command(name="cds", aliases=["cooldowns"])
 async def cds_prefix(ctx: commands.Context):
-    await ctx.reply(build_cooldowns_text(ctx.author.id))
+    await ctx.reply(build_cooldowns_text(did(ctx.author.id)))
 
 
 @bot.tree.command(name="donate", description="Donate money to another user")
@@ -1346,7 +1397,7 @@ async def donate(interaction: discord.Interaction, amount: str, user: discord.Us
     if user.bot:
         await interaction.response.send_message("❌ You can't donate to a bot.")
         return
-    donated, error = do_donate(interaction.user.id, user.id, amount)
+    donated, error = do_donate(did(interaction.user.id), did(user.id), amount)
     if error:
         await interaction.response.send_message(error)
         return
@@ -1358,7 +1409,7 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
     if user.bot:
         await ctx.reply("❌ You can't donate to a bot.")
         return
-    donated, error = do_donate(ctx.author.id, user.id, amount)
+    donated, error = do_donate(did(ctx.author.id), did(user.id), amount)
     if error:
         await ctx.reply(error)
         return
@@ -1401,21 +1452,282 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    if message.author.id in afk_users:
-        del afk_users[message.author.id]
+    if did(message.author.id) in afk_users:
+        del afk_users[did(message.author.id)]
         await message.reply(f"Welcome back {message.author.mention}, I removed your afk.", mention_author=False)
 
     for user in message.mentions:
-        if user.id in afk_users:
+        if did(user.id) in afk_users:
             await message.reply(
-                f"{user.display_name} is afk: {afk_users[user.id]}",
+                f"{user.display_name} is afk: {afk_users[did(user.id)]}",
                 mention_author=False,
             )
 
     await bot.process_commands(message)
 
 
-if __name__ == "__main__":
+# ---------- WhatsApp bridge ----------
+
+async def send_whatsapp_message(to: str, text: str):
+    if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID):
+        print("WhatsApp not configured — skipping send.")
+        return
+    url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": text},
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status >= 300:
+                    body = await resp.text()
+                    print(f"WhatsApp send failed ({resp.status}): {body}")
+    except Exception as e:
+        print(f"WhatsApp send error: {e}")
+
+
+async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str):
+    """Roulette without the multi-step animation, since WhatsApp text messages can't be edited here."""
+    color_choice = color_choice.lower()
+    if color_choice not in ("red", "black", "green"):
+        return "❌ Choose `red`, `black`, or `green`."
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+    remaining = check_cooldown(roulette_cooldowns, user_id, ROULETTE_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    number, color, color_display = do_roulette_spin()
+    won = color == color_choice
+    if won:
+        payout = amount * ROULETTE_MULTIPLIER[color_choice]
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+    else:
+        payout = 0
+    final_bal = get_balance(user_id)
+    return build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
+
+
+async def run_slot_whatsapp(user_id: str, amount_str: str):
+    """Slots without the multi-step animation, for the same reason as roulette above."""
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+    remaining = check_cooldown(slot_cooldowns, user_id, SLOT_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    update_balance(user_id, wallet=bal["wallet"] - amount)
+    spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+    spin_display = " | ".join(spin)
+    counts = {s: spin.count(s) for s in set(spin)}
+    max_count = max(counts.values())
+
+    if max_count == 3:
+        payout = amount * SLOT_JACKPOT_MULTIPLIER
+    elif max_count == 2:
+        payout = amount * SLOT_WIN_MULTIPLIER
+    else:
+        payout = 0
+
+    if payout > 0:
+        new_bal = get_balance(user_id)
+        update_balance(user_id, wallet=new_bal["wallet"] + payout)
+    final_bal = get_balance(user_id)
+
+    if payout > 0:
+        footer = f"🎉 *YOU WON!* 🎉\nPayout: ${payout:,}\n\n💵 Wallet: ${final_bal['wallet']:,}"
+    else:
+        footer = f"💥 *YOU LOST!* 💥\nBetter luck next time.\n\n💵 Wallet: ${final_bal['wallet']:,}"
+    return build_slot_spin_text(spin_display, footer)
+
+
+WHATSAPP_UNSUPPORTED_NOTE = (
+    "❌ That command needs Discord features (avatars, mentions, buttons) "
+    "that don't exist on WhatsApp. Try it on Discord instead."
+)
+
+
+async def handle_whatsapp_command(sender: str, text_body: str):
+    text_body = (text_body or "").strip()
+    if not text_body:
+        return None
+
+    parts = text_body.split()
+    cmd = parts[0].lower().lstrip(".").lstrip("/")
+    args = parts[1:]
+    uid = wid(sender)
+
+    if cmd in ("menu", "help"):
+        return build_menu_text()
+
+    if cmd == "ping":
+        return "🏓 Pong!"
+
+    if cmd == "8ball":
+        if not args:
+            return "❌ Usage: .8ball <question>"
+        return f"🎱 **Q:** {' '.join(args)}\n**A:** {get_8ball_answer()}"
+
+    if cmd == "joke":
+        return f"😄 {get_joke()}"
+
+    if cmd == "bal":
+        return build_balance_text(uid)
+
+    if cmd in ("withdraw", "wd"):
+        if not args:
+            return "❌ Usage: .withdraw <amount|all>"
+        return do_withdraw(uid, args[0])
+
+    if cmd in ("deposit", "dep"):
+        if not args:
+            return "❌ Usage: .deposit <amount|all>"
+        return do_deposit(uid, args[0])
+
+    if cmd in ("cf", "coinflip"):
+        if len(args) < 2:
+            return "❌ Usage: .cf <heads/tails> <amount|all>"
+        return await run_coinflip(uid, args[0], args[1])
+
+    if cmd == "roll":
+        if not args:
+            return "❌ Usage: .roll <amount|all>"
+        return do_dice(uid, args[0])
+
+    if cmd == "roulette":
+        if len(args) < 2:
+            return "❌ Usage: .roulette <red/black/green> <amount|all>"
+        return await run_roulette_whatsapp(uid, args[0], args[1])
+
+    if cmd == "slot":
+        if not args:
+            return "❌ Usage: .slot <amount|all>"
+        return await run_slot_whatsapp(uid, args[0])
+
+    if cmd == "fish":
+        return do_fish(uid)
+
+    if cmd == "beg":
+        return do_beg(uid)
+
+    if cmd == "dig":
+        return do_dig(uid)
+
+    if cmd == "mines":
+        if not args:
+            return MINES_HELP_TEXT
+        if args[0].lower() == "cashout":
+            return cashout_mines(uid)
+        if uid in active_mines_games:
+            return dig_mines(uid, args[0])
+        mines_count = args[1] if len(args) > 1 else None
+        return start_mines(uid, args[0], mines_count)
+
+    if cmd in ("cds", "cooldowns"):
+        return build_cooldowns_text(uid)
+
+    if cmd == "donate":
+        if len(args) < 2:
+            return "❌ Usage: .donate <amount> <phone number>"
+        amount_str, target_number = args[0], args[1]
+        donated, error = do_donate(uid, wid(target_number), amount_str)
+        if error:
+            return error
+        return f"✅ Successfully donated ${donated:,} to {target_number}"
+
+    if cmd == "afk":
+        reason = " ".join(args) if args else "busy"
+        afk_users[uid] = reason
+        return f"You are now afk, reason: {reason}"
+
+    if cmd in ("storage", "clearcache", "auth"):
+        if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
+            return "❌ Only the bot owner can use this command."
+        if cmd == "storage":
+            return build_storage_text()
+        if cmd == "clearcache":
+            return build_clearcache_text()
+        return "❌ Auth toggling isn't available on WhatsApp yet."
+
+    if cmd in ("avatar", "userinfo", "poll"):
+        return WHATSAPP_UNSUPPORTED_NOTE
+
+    return None  # unknown text — stay silent rather than spam replies
+
+
+async def whatsapp_verify(request: web.Request):
+    mode = request.query.get("hub.mode")
+    token = request.query.get("hub.verify_token")
+    challenge = request.query.get("hub.challenge")
+    if mode == "subscribe" and token and WHATSAPP_VERIFY_TOKEN and token == WHATSAPP_VERIFY_TOKEN:
+        return web.Response(text=challenge or "")
+    return web.Response(status=403)
+
+
+async def whatsapp_receive(request: web.Request):
+    try:
+        data = await request.json()
+        entry = data.get("entry", [])[0]
+        change = entry.get("changes", [])[0]
+        value = change.get("value", {})
+        messages = value.get("messages")
+        if messages:
+            msg = messages[0]
+            sender = msg.get("from")
+            text_body = msg.get("text", {}).get("body", "")
+            reply_text = await handle_whatsapp_command(sender, text_body)
+            if reply_text and sender:
+                await send_whatsapp_message(sender, reply_text)
+    except (KeyError, IndexError):
+        pass
+    except Exception as e:
+        print(f"Error handling WhatsApp webhook: {e}")
+    return web.Response(text="EVENT_RECEIVED")
+
+
+async def start_webhook_server():
+    app = web.Application()
+    app.router.add_get("/webhook", whatsapp_verify)
+    app.router.add_post("/webhook", whatsapp_receive)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"WhatsApp webhook server listening on port {port}")
+
+
+async def main():
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    bot.run(TOKEN)
+    migrate_db()
+    await start_webhook_server()
+    async with bot:
+        await bot.start(TOKEN)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
