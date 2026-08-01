@@ -21,7 +21,56 @@ psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix=".", intents=intents)
+
+
+class AuthCheckedTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.command and interaction.command.name == "auth":
+            return True
+        if interaction.guild is None:
+            return True
+        if await interaction.client.is_owner(interaction.user):
+            return True
+        if not auth_enabled.get(interaction.guild.id, True):
+            await interaction.response.send_message(
+                "🔒 The bot is currently disabled in this server. An admin can turn it back on with `/auth on`.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+
+bot = commands.Bot(
+    command_prefix=".",
+    intents=intents,
+    tree_cls=AuthCheckedTree,
+    allowed_mentions=discord.AllowedMentions(replied_user=False),
+)
+
+
+@bot.check
+async def global_auth_check(ctx: commands.Context) -> bool:
+    if ctx.command and ctx.command.name == "auth":
+        return True
+    if ctx.guild is None:
+        return True
+    if await bot.is_owner(ctx.author):
+        return True
+    return auth_enabled.get(ctx.guild.id, True)
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.NotOwner):
+        await ctx.reply("❌ Only the bot owner can use this command.", mention_author=False)
+        return
+    if isinstance(error, commands.CheckFailure):
+        await ctx.reply(
+            "🔒 The bot is currently disabled in this server. An admin can turn it back on with `.auth on`.",
+            mention_author=False,
+        )
+        return
+    raise error
 
 afk_users = {}  # user_id -> reason
 
@@ -51,6 +100,20 @@ def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
         return seconds - (now - last)
     cooldowns[user_id] = now
     return None
+
+
+def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
+    """Read-only check, does not start/reset the cooldown."""
+    last = cooldowns.get(user_id)
+    if last is None:
+        return None
+    elapsed = time.time() - last
+    if elapsed < seconds:
+        return seconds - elapsed
+    return None
+
+
+auth_enabled = {}  # guild_id -> bool (default True = enabled)
 
 DEFAULT_WALLET = 50000
 DEFAULT_BANK = 50000
@@ -235,6 +298,11 @@ def build_menu_text():
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
         "┃ • afk [reason] — set yourself as afk\n"
+        "┃ • cds/cooldowns — show your active cooldowns\n"
+        "┃ • donate <amount|all> @user — send money to someone\n"
+        "┃\n"
+        "┃ 𝕺𝖜𝖓𝖊𝖗 𝕮𝖔𝖒𝖒𝖆𝖓𝖉𝖘\n"
+        "┃ • auth on/off — enable/disable bot in server\n"
         "┃ • storage — bot system status\n"
         "┃ • clearcache — free up memory\n"
         "┃\n"
@@ -691,6 +759,54 @@ def do_dice(user_id: int, amount_str: str):
         )
 
 
+COOLDOWN_REGISTRY = [
+    ("Coinflip (.cf)", cf_cooldowns, CF_COOLDOWN_SECONDS),
+    ("Roulette (.roulette)", roulette_cooldowns, ROULETTE_COOLDOWN_SECONDS),
+    ("Fish (.fish)", fish_cooldowns, FISH_COOLDOWN_SECONDS),
+    ("Beg (.beg)", beg_cooldowns, BEG_COOLDOWN_SECONDS),
+    ("Dig (.dig)", dig_cooldowns, DIG_COOLDOWN_SECONDS),
+    ("Slot (.slot)", slot_cooldowns, SLOT_COOLDOWN_SECONDS),
+    ("Dice (.roll)", dice_cooldowns, DICE_COOLDOWN_SECONDS),
+]
+
+
+def build_cooldowns_text(user_id: int):
+    lines = []
+    for label, cooldowns, seconds in COOLDOWN_REGISTRY:
+        remaining = get_remaining_cooldown(cooldowns, user_id, seconds)
+        if remaining is not None:
+            lines.append(f"┃ ⏳ {label}: {int(remaining) + 1}s left")
+
+    if not lines:
+        return "✅ You have no active cooldowns."
+
+    return (
+        "╭━━━〔 ⏱️ ᴀᴄᴛɪᴠᴇ ᴄᴏᴏʟᴅᴏᴡɴs 〕━━━⬣\n"
+        + "\n".join(lines)
+        + "\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def do_donate(sender_id: int, receiver_id: int, amount_str: str):
+    if sender_id == receiver_id:
+        return None, "❌ You can't donate to yourself."
+
+    bal = get_balance(sender_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return None, "❌ Invalid amount."
+    if amount <= 0:
+        return None, "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return None, "❌ You don't have that much in your wallet."
+
+    update_balance(sender_id, wallet=bal["wallet"] - amount)
+    receiver_bal = get_balance(receiver_id)
+    update_balance(receiver_id, wallet=receiver_bal["wallet"] + amount)
+    return amount, None
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -776,7 +892,7 @@ async def ping(interaction: discord.Interaction):
 @bot.command(name="ping")
 async def ping_prefix(ctx: commands.Context):
     latency_ms = round(bot.latency * 1000)
-    await ctx.send(f"🏓 Pong! {latency_ms}ms")
+    await ctx.reply(f"🏓 Pong! {latency_ms}ms")
 
 
 @bot.tree.command(name="8ball", description="Ask the magic 8-ball a question")
@@ -791,7 +907,7 @@ async def eight_ball(interaction: discord.Interaction, question: str):
 @bot.command(name="8ball")
 async def eight_ball_prefix(ctx: commands.Context, *, question: str):
     answer = get_8ball_answer()
-    await ctx.send(f"🎱 **Q:** {question}\n**A:** {answer}")
+    await ctx.reply(f"🎱 **Q:** {question}\n**A:** {answer}")
 
 
 @bot.tree.command(name="avatar", description="Get a user's avatar")
@@ -804,7 +920,7 @@ async def avatar(interaction: discord.Interaction, user: discord.User = None):
 @bot.command(name="avatar")
 async def avatar_prefix(ctx: commands.Context, user: discord.User = None):
     user = user or ctx.author
-    await ctx.send(embed=build_avatar_embed(user))
+    await ctx.reply(embed=build_avatar_embed(user))
 
 
 @bot.tree.command(name="userinfo", description="Get info about a server member")
@@ -817,7 +933,7 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member = No
 @bot.command(name="userinfo")
 async def userinfo_prefix(ctx: commands.Context, member: discord.Member = None):
     member = member or ctx.author
-    await ctx.send(embed=build_userinfo_embed(member))
+    await ctx.reply(embed=build_userinfo_embed(member))
 
 
 @bot.tree.command(name="poll", description="Create a quick yes/no poll")
@@ -835,7 +951,7 @@ async def poll(interaction: discord.Interaction, question: str):
 async def poll_prefix(ctx: commands.Context, *, question: str):
     embed = discord.Embed(title="📊 Poll", description=question, color=discord.Color.gold())
     embed.set_footer(text=f"Poll started by {ctx.author.display_name}")
-    message = await ctx.send(embed=embed)
+    message = await ctx.reply(embed=embed)
     await message.add_reaction("👍")
     await message.add_reaction("👎")
 
@@ -847,7 +963,7 @@ async def joke(interaction: discord.Interaction):
 
 @bot.command(name="joke")
 async def joke_prefix(ctx: commands.Context):
-    await ctx.send(f"😄 {get_joke()}")
+    await ctx.reply(f"😄 {get_joke()}")
 
 
 @bot.tree.command(name="afk", description="Set yourself as AFK")
@@ -862,7 +978,7 @@ async def afk(interaction: discord.Interaction, reason: str = "busy"):
 @bot.command(name="afk")
 async def afk_prefix(ctx: commands.Context, *, reason: str = "busy"):
     afk_users[ctx.author.id] = reason
-    await ctx.send(f"You are now afk, reason: {reason}")
+    await ctx.reply(f"You are now afk, reason: {reason}")
 
 
 @bot.tree.command(name="bal", description="Check your account balance")
@@ -872,7 +988,7 @@ async def bal(interaction: discord.Interaction):
 
 @bot.command(name="bal")
 async def bal_prefix(ctx: commands.Context):
-    await ctx.send(build_balance_text(ctx.author.id))
+    await ctx.reply(build_balance_text(ctx.author.id))
 
 
 @bot.tree.command(name="withdraw", description="Withdraw money from your bank to your wallet")
@@ -889,7 +1005,7 @@ async def wd(interaction: discord.Interaction, amount: str):
 
 @bot.command(name="withdraw", aliases=["wd"])
 async def withdraw_prefix(ctx: commands.Context, amount: str):
-    await ctx.send(do_withdraw(ctx.author.id, amount))
+    await ctx.reply(do_withdraw(ctx.author.id, amount))
 
 
 @bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
@@ -906,7 +1022,7 @@ async def dep(interaction: discord.Interaction, amount: str):
 
 @bot.command(name="deposit", aliases=["dep"])
 async def deposit_prefix(ctx: commands.Context, amount: str):
-    await ctx.send(do_deposit(ctx.author.id, amount))
+    await ctx.reply(do_deposit(ctx.author.id, amount))
 
 
 @bot.tree.command(name="menu", description="Show all bot commands")
@@ -916,7 +1032,7 @@ async def menu(interaction: discord.Interaction):
 
 @bot.command(name="menu")
 async def menu_prefix(ctx: commands.Context):
-    await ctx.send(build_menu_text())
+    await ctx.reply(build_menu_text())
 
 
 # ---------- Gambling ----------
@@ -985,7 +1101,7 @@ async def coinflip(interaction: discord.Interaction, side: str, amount: str):
 
 @bot.command(name="cf", aliases=["coinflip"])
 async def cf_prefix(ctx: commands.Context, side: str, amount: str):
-    await ctx.send(await run_coinflip(ctx.author.id, side, amount))
+    await ctx.reply(await run_coinflip(ctx.author.id, side, amount))
 
 
 def build_roulette_spinning_text(bet_display: str, color_choice: str):
@@ -1074,7 +1190,7 @@ async def roulette(interaction: discord.Interaction, color: str, amount: str):
 @bot.command(name="roulette")
 async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     async def send_func(text):
-        return await ctx.send(text)
+        return await ctx.reply(text)
 
     async def edit_func(message, text):
         await message.edit(content=text)
@@ -1082,24 +1198,32 @@ async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     await run_roulette(ctx.author.id, color, amount, send_func, edit_func)
 
 
-@bot.tree.command(name="storage", description="Show bot system status")
+@bot.tree.command(name="storage", description="[Owner only] Show bot system status")
 async def storage(interaction: discord.Interaction):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
     await interaction.response.send_message(build_storage_text())
 
 
 @bot.command(name="storage")
+@commands.is_owner()
 async def storage_prefix(ctx: commands.Context):
-    await ctx.send(build_storage_text())
+    await ctx.reply(build_storage_text())
 
 
-@bot.tree.command(name="clearcache", description="Clear the bot's cache and free up memory")
+@bot.tree.command(name="clearcache", description="[Owner only] Clear the bot's cache and free up memory")
 async def clearcache(interaction: discord.Interaction):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
     await interaction.response.send_message(build_clearcache_text())
 
 
 @bot.command(name="clearcache")
+@commands.is_owner()
 async def clearcache_prefix(ctx: commands.Context):
-    await ctx.send(build_clearcache_text())
+    await ctx.reply(build_clearcache_text())
 
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
@@ -1109,7 +1233,7 @@ async def fish(interaction: discord.Interaction):
 
 @bot.command(name="fish")
 async def fish_prefix(ctx: commands.Context):
-    await ctx.send(do_fish(ctx.author.id))
+    await ctx.reply(do_fish(ctx.author.id))
 
 
 @bot.tree.command(name="beg", description="Beg for some coins")
@@ -1119,7 +1243,7 @@ async def beg(interaction: discord.Interaction):
 
 @bot.command(name="beg")
 async def beg_prefix(ctx: commands.Context):
-    await ctx.send(do_beg(ctx.author.id))
+    await ctx.reply(do_beg(ctx.author.id))
 
 
 @bot.tree.command(name="dig", description="Dig for buried coins")
@@ -1129,7 +1253,7 @@ async def dig(interaction: discord.Interaction):
 
 @bot.command(name="dig")
 async def dig_prefix(ctx: commands.Context):
-    await ctx.send(do_dig(ctx.author.id))
+    await ctx.reply(do_dig(ctx.author.id))
 
 
 # ---------- Mines ----------
@@ -1138,20 +1262,20 @@ async def dig_prefix(ctx: commands.Context):
 async def mines_prefix(ctx: commands.Context, *args):
     user_id = ctx.author.id
     if len(args) == 0:
-        await ctx.send(MINES_HELP_TEXT)
+        await ctx.reply(MINES_HELP_TEXT)
         return
     if args[0].lower() == "cashout":
-        await ctx.send(cashout_mines(user_id))
+        await ctx.reply(cashout_mines(user_id))
         return
     if user_id in active_mines_games:
         if len(args) != 1:
-            await ctx.send("❌ Type `.mines <1-25>` to dig or `.mines cashout` to cash out.")
+            await ctx.reply("❌ Type `.mines <1-25>` to dig or `.mines cashout` to cash out.")
             return
-        await ctx.send(dig_mines(user_id, args[0]))
+        await ctx.reply(dig_mines(user_id, args[0]))
         return
     bet_str = args[0]
     mines_str = args[1] if len(args) > 1 else None
-    await ctx.send(start_mines(user_id, bet_str, mines_str))
+    await ctx.reply(start_mines(user_id, bet_str, mines_str))
 
 
 @bot.tree.command(name="mines", description="Start a mines game")
@@ -1187,7 +1311,7 @@ async def slot(interaction: discord.Interaction, amount: str):
 @bot.command(name="slot")
 async def slot_prefix(ctx: commands.Context, amount: str):
     async def send_func(text):
-        return await ctx.send(text)
+        return await ctx.reply(text)
 
     async def edit_func(message, text):
         await message.edit(content=text)
@@ -1203,7 +1327,73 @@ async def roll(interaction: discord.Interaction, amount: str):
 
 @bot.command(name="roll")
 async def roll_prefix(ctx: commands.Context, amount: str):
-    await ctx.send(do_dice(ctx.author.id, amount))
+    await ctx.reply(do_dice(ctx.author.id, amount))
+
+
+@bot.tree.command(name="cooldowns", description="Show your active cooldowns")
+async def cooldowns(interaction: discord.Interaction):
+    await interaction.response.send_message(build_cooldowns_text(interaction.user.id))
+
+
+@bot.command(name="cds", aliases=["cooldowns"])
+async def cds_prefix(ctx: commands.Context):
+    await ctx.reply(build_cooldowns_text(ctx.author.id))
+
+
+@bot.tree.command(name="donate", description="Donate money to another user")
+@app_commands.describe(amount="Amount to donate, or 'all'", user="The user to donate to")
+async def donate(interaction: discord.Interaction, amount: str, user: discord.User):
+    if user.bot:
+        await interaction.response.send_message("❌ You can't donate to a bot.")
+        return
+    donated, error = do_donate(interaction.user.id, user.id, amount)
+    if error:
+        await interaction.response.send_message(error)
+        return
+    await interaction.response.send_message(f"✅ Successfully donated ${donated:,} to {user.mention}")
+
+
+@bot.command(name="donate")
+async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member):
+    if user.bot:
+        await ctx.reply("❌ You can't donate to a bot.")
+        return
+    donated, error = do_donate(ctx.author.id, user.id, amount)
+    if error:
+        await ctx.reply(error)
+        return
+    await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
+
+
+@bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
+@app_commands.describe(state="on or off")
+@app_commands.choices(state=[
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+])
+async def auth(interaction: discord.Interaction, state: app_commands.Choice[str]):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
+    if interaction.guild is None:
+        await interaction.response.send_message("❌ This command only works inside a server.")
+        return
+    auth_enabled[interaction.guild.id] = (state.value == "on")
+    await interaction.response.send_message(f"🔐 Bot responses turned **{state.value}** for this server.")
+
+
+@bot.command(name="auth")
+@commands.is_owner()
+async def auth_prefix(ctx: commands.Context, state: str):
+    state = state.lower()
+    if state not in ("on", "off"):
+        await ctx.reply("❌ Use `.auth on` or `.auth off`.")
+        return
+    if ctx.guild is None:
+        await ctx.reply("❌ This command only works inside a server.")
+        return
+    auth_enabled[ctx.guild.id] = (state == "on")
+    await ctx.reply(f"🔐 Bot responses turned **{state}** for this server.")
 
 
 @bot.event
@@ -1213,12 +1403,13 @@ async def on_message(message: discord.Message):
 
     if message.author.id in afk_users:
         del afk_users[message.author.id]
-        await message.channel.send(f"Welcome back {message.author.mention}, I removed your afk.")
+        await message.reply(f"Welcome back {message.author.mention}, I removed your afk.", mention_author=False)
 
     for user in message.mentions:
         if user.id in afk_users:
-            await message.channel.send(
-                f"{user.display_name} is afk: {afk_users[user.id]}"
+            await message.reply(
+                f"{user.display_name} is afk: {afk_users[user.id]}",
+                mention_author=False,
             )
 
     await bot.process_commands(message)
