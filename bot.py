@@ -1570,13 +1570,22 @@ WHATSAPP_UNSUPPORTED_NOTE = (
 )
 
 
+WHATSAPP_PREFIXES = (".", "/")
+
+
 async def handle_whatsapp_command(sender: str, text_body: str):
     text_body = (text_body or "").strip()
     if not text_body:
         return None
+    if not text_body.startswith(WHATSAPP_PREFIXES):
+        return None  # not addressed to the bot — stay silent (safe for group chats)
+
+    text_body = text_body[1:].strip()
+    if not text_body:
+        return None
 
     parts = text_body.split()
-    cmd = parts[0].lower().lstrip(".").lstrip("/")
+    cmd = parts[0].lower()
     args = parts[1:]
     uid = wid(sender)
 
@@ -1588,7 +1597,7 @@ async def handle_whatsapp_command(sender: str, text_body: str):
 
     if cmd == "8ball":
         if not args:
-            return "❌ Usage: .8ball <question>"
+            return "❌ Usage: 8ball <question>"
         return f"🎱 **Q:** {' '.join(args)}\n**A:** {get_8ball_answer()}"
 
     if cmd == "joke":
@@ -1599,32 +1608,32 @@ async def handle_whatsapp_command(sender: str, text_body: str):
 
     if cmd in ("withdraw", "wd"):
         if not args:
-            return "❌ Usage: .withdraw <amount|all>"
+            return "❌ Usage: withdraw <amount|all>"
         return do_withdraw(uid, args[0])
 
     if cmd in ("deposit", "dep"):
         if not args:
-            return "❌ Usage: .deposit <amount|all>"
+            return "❌ Usage: deposit <amount|all>"
         return do_deposit(uid, args[0])
 
     if cmd in ("cf", "coinflip"):
         if len(args) < 2:
-            return "❌ Usage: .cf <heads/tails> <amount|all>"
+            return "❌ Usage: cf <heads/tails> <amount|all>"
         return await run_coinflip(uid, args[0], args[1])
 
     if cmd == "roll":
         if not args:
-            return "❌ Usage: .roll <amount|all>"
+            return "❌ Usage: roll <amount|all>"
         return do_dice(uid, args[0])
 
     if cmd == "roulette":
         if len(args) < 2:
-            return "❌ Usage: .roulette <red/black/green> <amount|all>"
+            return "❌ Usage: roulette <red/black/green> <amount|all>"
         return await run_roulette_whatsapp(uid, args[0], args[1])
 
     if cmd == "slot":
         if not args:
-            return "❌ Usage: .slot <amount|all>"
+            return "❌ Usage: slot <amount|all>"
         return await run_slot_whatsapp(uid, args[0])
 
     if cmd == "fish":
@@ -1651,7 +1660,7 @@ async def handle_whatsapp_command(sender: str, text_body: str):
 
     if cmd == "donate":
         if len(args) < 2:
-            return "❌ Usage: .donate <amount> <phone number>"
+            return "❌ Usage: donate <amount> <phone number>"
         amount_str, target_number = args[0], args[1]
         donated, error = do_donate(uid, wid(target_number), amount_str)
         if error:
