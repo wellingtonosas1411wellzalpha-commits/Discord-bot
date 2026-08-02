@@ -126,6 +126,7 @@ def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
 
 
 auth_enabled = {}  # guild_id -> bool (default True = enabled)
+whatsapp_enabled = True  # global on/off switch for the WhatsApp side
 
 DEFAULT_WALLET = 50000
 DEFAULT_BANK = 50000
@@ -1574,6 +1575,7 @@ WHATSAPP_PREFIXES = (".", "/")
 
 
 async def handle_whatsapp_command(sender: str, text_body: str):
+    global whatsapp_enabled
     text_body = (text_body or "").strip()
     if not text_body:
         return None
@@ -1588,6 +1590,11 @@ async def handle_whatsapp_command(sender: str, text_body: str):
     cmd = parts[0].lower()
     args = parts[1:]
     uid = wid(sender)
+
+    is_owner = bool(WHATSAPP_OWNER_NUMBER) and sender == WHATSAPP_OWNER_NUMBER
+
+    if not whatsapp_enabled and cmd != "auth" and not is_owner:
+        return "🔒 The bot is currently disabled. The owner can turn it back on with `.auth on`."
 
     if cmd in ("menu", "help"):
         return build_menu_text()
@@ -1672,14 +1679,20 @@ async def handle_whatsapp_command(sender: str, text_body: str):
         afk_users[uid] = reason
         return f"You are now afk, reason: {reason}"
 
-    if cmd in ("storage", "clearcache", "auth"):
+    if cmd in ("storage", "clearcache"):
         if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
             return "❌ Only the bot owner can use this command."
         if cmd == "storage":
             return build_storage_text()
-        if cmd == "clearcache":
-            return build_clearcache_text()
-        return "❌ Auth toggling isn't available on WhatsApp yet."
+        return build_clearcache_text()
+
+    if cmd == "auth":
+        if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
+            return "❌ Only the bot owner can use this command."
+        if not args or args[0].lower() not in ("on", "off"):
+            return "❌ Use `.auth on` or `.auth off`."
+        whatsapp_enabled = args[0].lower() == "on"
+        return f"🔐 Bot responses turned **{args[0].lower()}** for WhatsApp."
 
     if cmd in ("avatar", "userinfo", "poll"):
         return WHATSAPP_UNSUPPORTED_NOTE
