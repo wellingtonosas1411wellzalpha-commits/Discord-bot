@@ -189,33 +189,86 @@ def migrate_db():
         print(f"Database migration skipped/failed: {e}")
 
 
-def get_balance(user_id: int):
+def resolve_uid(user_id: str) -> str:
+    """If this ID has been linked to another account, return the canonical ID
+    so Discord and WhatsApp can share one balance."""
     conn, cur = get_db()
-    cur.execute("SELECT wallet, bank, limit_amt FROM balances WHERE user_id = %s", (user_id,))
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS account_links (
+            alias_id TEXT PRIMARY KEY,
+            canonical_id TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    cur.execute("SELECT canonical_id FROM account_links WHERE alias_id = %s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else user_id
+
+
+def link_accounts(alias_id: str, canonical_id: str):
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS account_links (
+            alias_id TEXT PRIMARY KEY,
+            canonical_id TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    cur.execute(
+        "INSERT INTO account_links (alias_id, canonical_id) VALUES (%s, %s) "
+        "ON CONFLICT (alias_id) DO UPDATE SET canonical_id = EXCLUDED.canonical_id",
+        (alias_id, canonical_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def unlink_account(alias_id: str):
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS account_links (
+            alias_id TEXT PRIMARY KEY,
+            canonical_id TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    cur.execute("DELETE FROM account_links WHERE alias_id = %s", (alias_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_balance(user_id: int):
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute("SELECT wallet, bank FROM balances WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
     if row is None:
         cur.execute(
             "INSERT INTO balances (user_id, wallet, bank, limit_amt) VALUES (%s, %s, %s, %s)",
-            (user_id, DEFAULT_WALLET, DEFAULT_BANK, DEFAULT_LIMIT),
+            (user_id, DEFAULT_WALLET, DEFAULT_BANK, 0),
         )
         conn.commit()
-        wallet, bank, limit_amt = DEFAULT_WALLET, DEFAULT_BANK, DEFAULT_LIMIT
+        wallet, bank = DEFAULT_WALLET, DEFAULT_BANK
     else:
-        wallet, bank, limit_amt = row
+        wallet, bank = row
     cur.close()
     conn.close()
-    return {"wallet": wallet, "bank": bank, "limit": limit_amt}
+    return {"wallet": wallet, "bank": bank}
 
 
-def update_balance(user_id: int, wallet=None, bank=None, limit_amt=None):
+def update_balance(user_id: int, wallet=None, bank=None):
+    user_id = resolve_uid(user_id)
     bal = get_balance(user_id)  # ensures row exists
     new_wallet = bal["wallet"] if wallet is None else wallet
     new_bank = bal["bank"] if bank is None else bank
-    new_limit = bal["limit"] if limit_amt is None else limit_amt
     conn, cur = get_db()
     cur.execute(
-        "UPDATE balances SET wallet = %s, bank = %s, limit_amt = %s WHERE user_id = %s",
-        (new_wallet, new_bank, new_limit, user_id),
+        "UPDATE balances SET wallet = %s, bank = %s WHERE user_id = %s",
+        (new_wallet, new_bank, user_id),
     )
     conn.commit()
     cur.close()
@@ -263,7 +316,6 @@ def build_balance_text(user_id: int):
         "╭━━━〔 💳 ᴀᴄᴄᴏᴜɴᴛ ʙᴀʟᴀɴᴄᴇ 〕━━━⬣\n"
         f"┃ 💰 ᴡᴀʟʟᴇᴛ : [ ${bal['wallet']:,} ]\n"
         f"┃ 🏦 ʙᴀɴᴋ   : [ ${bal['bank']:,} ]\n"
-        f"┃ 📈 ʟɪᴍɪᴛ  : [ ${bal['limit']:,} ]\n"
         "┃\n"
         f"┃ 💠 ᴛᴏᴛᴀʟ  : [ ${total:,} ]\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
@@ -352,6 +404,8 @@ def build_menu_text():
         "┃ • afk [reason] — set yourself as afk\n"
         "┃ • cds/cooldowns — show your active cooldowns\n"
         "┃ • donate <amount|all> @user — send money to someone\n"
+        "┃ • link <number/Discord ID> — share balance across platforms\n"
+        "┃ • unlink <number/ID> — remove a linked account\n"
         "┃\n"
         "┃ 𝕺𝖜𝖓𝖊𝖗 𝕮𝖔𝖒𝖒𝖆𝖓𝖉𝖘\n"
         "┃ • auth on/off — enable/disable bot in server\n"
@@ -1417,6 +1471,44 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
     await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
 
 
+@bot.tree.command(name="link", description="Link your WhatsApp number so your balance is shared with Discord")
+@app_commands.describe(whatsapp_number="Your WhatsApp number, digits only with country code (no + or spaces)")
+async def link(interaction: discord.Interaction, whatsapp_number: str):
+    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
+    if not cleaned:
+        await interaction.response.send_message("❌ Enter a valid phone number, digits only.")
+        return
+    link_accounts(wid(cleaned), did(interaction.user.id))
+    await interaction.response.send_message(
+        f"✅ Linked! WhatsApp number {cleaned} now shares this Discord account's balance."
+    )
+
+
+@bot.command(name="link")
+async def link_prefix(ctx: commands.Context, whatsapp_number: str):
+    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
+    if not cleaned:
+        await ctx.reply("❌ Enter a valid phone number, digits only.")
+        return
+    link_accounts(wid(cleaned), did(ctx.author.id))
+    await ctx.reply(f"✅ Linked! WhatsApp number {cleaned} now shares this Discord account's balance.")
+
+
+@bot.tree.command(name="unlink", description="Unlink a WhatsApp number from this Discord account")
+@app_commands.describe(whatsapp_number="The WhatsApp number to unlink, digits only")
+async def unlink(interaction: discord.Interaction, whatsapp_number: str):
+    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
+    unlink_account(wid(cleaned))
+    await interaction.response.send_message(f"✅ Unlinked WhatsApp number {cleaned}.")
+
+
+@bot.command(name="unlink")
+async def unlink_prefix(ctx: commands.Context, whatsapp_number: str):
+    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
+    unlink_account(wid(cleaned))
+    await ctx.reply(f"✅ Unlinked WhatsApp number {cleaned}.")
+
+
 @bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
 @app_commands.describe(state="on or off")
 @app_commands.choices(state=[
@@ -1494,8 +1586,9 @@ async def send_whatsapp_message(to: str, text: str):
         print(f"WhatsApp send error: {e}")
 
 
-async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str):
-    """Roulette without the multi-step animation, since WhatsApp text messages can't be edited here."""
+async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str, sender: str):
+    """No true message-editing on WhatsApp's official API, so we send a 'spinning'
+    message first, then follow up with the result a couple seconds later."""
     color_choice = color_choice.lower()
     if color_choice not in ("red", "black", "green"):
         return "❌ Choose `red`, `black`, or `green`."
@@ -1513,6 +1606,9 @@ async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str
         return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
 
     update_balance(user_id, wallet=bal["wallet"] - amount)
+    await send_whatsapp_message(sender, build_roulette_spinning_text(f"${amount:,}", color_choice))
+    await asyncio.sleep(3)
+
     number, color, color_display = do_roulette_spin()
     won = color == color_choice
     if won:
@@ -1525,8 +1621,8 @@ async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str
     return build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
 
 
-async def run_slot_whatsapp(user_id: str, amount_str: str):
-    """Slots without the multi-step animation, for the same reason as roulette above."""
+async def run_slot_whatsapp(user_id: str, amount_str: str, sender: str):
+    """Same idea as roulette above — a spinning message, then the result."""
     bal = get_balance(user_id)
     try:
         amount = parse_amount(amount_str, all_value=bal["wallet"])
@@ -1541,6 +1637,11 @@ async def run_slot_whatsapp(user_id: str, amount_str: str):
         return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
 
     update_balance(user_id, wallet=bal["wallet"] - amount)
+    await send_whatsapp_message(sender, build_slot_spin_text(random_spin_display()))
+    await asyncio.sleep(1.5)
+    await send_whatsapp_message(sender, build_slot_spin_text(random_spin_display()))
+    await asyncio.sleep(1.5)
+
     spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
     spin_display = " | ".join(spin)
     counts = {s: spin.count(s) for s in set(spin)}
@@ -1636,12 +1737,12 @@ async def handle_whatsapp_command(sender: str, text_body: str):
     if cmd == "roulette":
         if len(args) < 2:
             return "❌ Usage: roulette <red/black/green> <amount|all>"
-        return await run_roulette_whatsapp(uid, args[0], args[1])
+        return await run_roulette_whatsapp(uid, args[0], args[1], sender)
 
     if cmd == "slot":
         if not args:
             return "❌ Usage: slot <amount|all>"
-        return await run_slot_whatsapp(uid, args[0])
+        return await run_slot_whatsapp(uid, args[0], sender)
 
     if cmd == "fish":
         return do_fish(uid)
@@ -1673,6 +1774,19 @@ async def handle_whatsapp_command(sender: str, text_body: str):
         if error:
             return error
         return f"✅ Successfully donated ${donated:,} to {target_number}"
+
+    if cmd == "link":
+        if not args:
+            return "❌ Usage: link <your Discord user ID> — get it with .userinfo on Discord"
+        discord_id = "".join(ch for ch in args[0] if ch.isdigit())
+        if not discord_id:
+            return "❌ Invalid Discord user ID."
+        link_accounts(uid, did(discord_id))
+        return f"✅ Linked! This WhatsApp number now shares Discord user {discord_id}'s balance."
+
+    if cmd == "unlink":
+        unlink_account(uid)
+        return "✅ Unlinked this WhatsApp number from any Discord account."
 
     if cmd == "afk":
         reason = " ".join(args) if args else "busy"
