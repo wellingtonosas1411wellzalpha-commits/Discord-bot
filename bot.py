@@ -275,6 +275,30 @@ def update_balance(user_id: int, wallet=None, bank=None):
     conn.close()
 
 
+def get_user_counts():
+    conn, cur = get_db()
+    cur.execute("SELECT COUNT(*) FROM balances WHERE user_id LIKE 'discord:%'")
+    discord_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM balances WHERE user_id LIKE 'whatsapp:%'")
+    whatsapp_count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return discord_count, whatsapp_count
+
+
+def build_stats_text():
+    discord_count, whatsapp_count = get_user_counts()
+    total = discord_count + whatsapp_count
+    return (
+        "╭━━━〔 📊 ʙᴏᴛ sᴛᴀᴛs 〕━━━⬣\n"
+        f"┃ 💬 Discord users : {discord_count:,}\n"
+        f"┃ 🟢 WhatsApp users: {whatsapp_count:,}\n"
+        "┃\n"
+        f"┃ 👥 Total users   : {total:,}\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
 def get_meta(key: str):
     conn, cur = get_db()
     cur.execute("""
@@ -410,6 +434,7 @@ def build_menu_text():
         "┃ 𝕺𝖜𝖓𝖊𝖗 𝕮𝖔𝖒𝖒𝖆𝖓𝖉𝖘\n"
         "┃ • auth on/off — enable/disable bot in server\n"
         "┃ • storage — bot system status\n"
+        "┃ • stats — how many people use the bot\n"
         "┃ • clearcache — free up memory\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
@@ -1318,6 +1343,20 @@ async def storage_prefix(ctx: commands.Context):
     await ctx.reply(build_storage_text())
 
 
+@bot.tree.command(name="stats", description="[Owner only] Show how many people use the bot")
+async def stats(interaction: discord.Interaction):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
+    await interaction.response.send_message(build_stats_text())
+
+
+@bot.command(name="stats")
+@commands.is_owner()
+async def stats_prefix(ctx: commands.Context):
+    await ctx.reply(build_stats_text())
+
+
 @bot.tree.command(name="clearcache", description="[Owner only] Clear the bot's cache and free up memory")
 async def clearcache(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
@@ -1793,11 +1832,13 @@ async def handle_whatsapp_command(sender: str, text_body: str):
         afk_users[uid] = reason
         return f"You are now afk, reason: {reason}"
 
-    if cmd in ("storage", "clearcache"):
+    if cmd in ("storage", "clearcache", "stats"):
         if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
             return "❌ Only the bot owner can use this command."
         if cmd == "storage":
             return build_storage_text()
+        if cmd == "stats":
+            return build_stats_text()
         return build_clearcache_text()
 
     if cmd == "auth":
