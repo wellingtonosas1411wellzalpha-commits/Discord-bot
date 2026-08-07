@@ -37,6 +37,11 @@ intents.message_content = True
 
 class AuthCheckedTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.command:
+            try:
+                log_command_usage(did(interaction.user.id), interaction.command.name, "discord")
+            except Exception:
+                pass
         if interaction.command and interaction.command.name == "auth":
             return True
         if interaction.guild is None:
@@ -62,6 +67,11 @@ bot = commands.Bot(
 
 @bot.check
 async def global_auth_check(ctx: commands.Context) -> bool:
+    if ctx.command:
+        try:
+            log_command_usage(did(ctx.author.id), ctx.command.name, "discord")
+        except Exception:
+            pass
     if ctx.command and ctx.command.name == "auth":
         return True
     if ctx.guild is None:
@@ -277,13 +287,85 @@ def update_balance(user_id: int, wallet=None, bank=None):
 
 def get_user_counts():
     conn, cur = get_db()
-    cur.execute("SELECT COUNT(*) FROM balances WHERE user_id LIKE 'discord:%'")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS command_log (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            command TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'discord'")
     discord_count = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM balances WHERE user_id LIKE 'whatsapp:%'")
+    cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'whatsapp'")
     whatsapp_count = cur.fetchone()[0]
     cur.close()
     conn.close()
     return discord_count, whatsapp_count
+
+
+def log_command_usage(user_id: str, command: str, platform: str):
+    """Records which command was used and by whom — never the message's
+    actual content, to keep people's conversations with the bot private."""
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS command_log (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            command TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    cur.execute(
+        "INSERT INTO command_log (user_id, platform, command) VALUES (%s, %s, %s)",
+        (user_id, platform, command),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_recent_activity(limit: int = 20):
+    conn, cur = get_db()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS command_log (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            command TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    cur.execute(
+        "SELECT user_id, platform, command, created_at FROM command_log "
+        "ORDER BY created_at DESC LIMIT %s",
+        (limit,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+
+def build_activity_text():
+    rows = get_recent_activity()
+    if not rows:
+        return "📭 No activity logged yet."
+    lines = []
+    for user_id, platform, command, ts in rows:
+        icon = "💬" if platform == "discord" else "🟢"
+        short_id = user_id.split(":", 1)[-1]
+        lines.append(f"┃ {ts.strftime('%b %d %H:%M')} {icon} {short_id[:12]} → {command}")
+    return (
+        "╭━━━〔 🕘 ʀᴇᴄᴇɴᴛ ᴀᴄᴛɪᴠɪᴛʏ 〕━━━⬣\n"
+        + "\n".join(lines)
+        + "\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
 
 
 def build_stats_text():
@@ -435,6 +517,7 @@ def build_menu_text():
         "┃ • auth on/off — enable/disable bot in server\n"
         "┃ • storage — bot system status\n"
         "┃ • stats — how many people use the bot\n"
+        "┃ • activity — recent command usage log\n"
         "┃ • clearcache — free up memory\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
@@ -1357,6 +1440,20 @@ async def stats_prefix(ctx: commands.Context):
     await ctx.reply(build_stats_text())
 
 
+@bot.tree.command(name="activity", description="[Owner only] See which commands people have been using")
+async def activity(interaction: discord.Interaction):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
+    await interaction.response.send_message(build_activity_text())
+
+
+@bot.command(name="activity")
+@commands.is_owner()
+async def activity_prefix(ctx: commands.Context):
+    await ctx.reply(build_activity_text())
+
+
 @bot.tree.command(name="clearcache", description="[Owner only] Clear the bot's cache and free up memory")
 async def clearcache(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
@@ -1733,6 +1830,11 @@ async def handle_whatsapp_command(sender: str, text_body: str):
 
     is_owner = bool(WHATSAPP_OWNER_NUMBER) and sender == WHATSAPP_OWNER_NUMBER
 
+    try:
+        log_command_usage(uid, cmd, "whatsapp")
+    except Exception:
+        pass
+
     if not whatsapp_enabled and cmd != "auth" and not is_owner:
         return "🔒 The bot is currently disabled. The owner can turn it back on with `.auth on`."
 
@@ -1832,13 +1934,15 @@ async def handle_whatsapp_command(sender: str, text_body: str):
         afk_users[uid] = reason
         return f"You are now afk, reason: {reason}"
 
-    if cmd in ("storage", "clearcache", "stats"):
+    if cmd in ("storage", "clearcache", "stats", "activity"):
         if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
             return "❌ Only the bot owner can use this command."
         if cmd == "storage":
             return build_storage_text()
         if cmd == "stats":
             return build_stats_text()
+        if cmd == "activity":
+            return build_activity_text()
         return build_clearcache_text()
 
     if cmd == "auth":
