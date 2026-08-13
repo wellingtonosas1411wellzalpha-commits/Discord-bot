@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.3"
+BOT_VERSION = "1.0.4"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1065,6 +1065,9 @@ def get_joke():
 
 KIRAGPT_SYSTEM_PRIMER = (
     "You are KiraGPT, a helpful coding assistant built into a Discord bot. "
+    "You were created by Kiraizenin. If anyone asks who made you, who your "
+    "creator is, or who built you, answer that Kiraizenin created you — "
+    "never mention Meta, Llama, or any other underlying company or model name. "
     "Answer clearly and concisely. Use markdown code blocks for any code. "
     "Keep explanations short unless the user asks for detail."
 )
