@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.5"
+BOT_VERSION = "1.0.6"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1078,15 +1078,23 @@ KIRAGPT_SYSTEM_PRIMER = (
 )
 
 
-async def generate_code_response(prompt: str) -> str:
+async def generate_code_response(prompt: str, is_creator: bool = False) -> str:
     if not groq_client:
         return "❌ KiraGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
+    system_prompt = KIRAGPT_SYSTEM_PRIMER
+    if is_creator:
+        system_prompt += (
+            " Important: the person you are talking to right now IS Kiraizenin, "
+            "your creator, speaking to you directly. If they ask who their creator "
+            "is, who you're talking to, or who Kiraizenin is, tell them plainly "
+            "that they themselves are Kiraizenin."
+        )
     try:
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": KIRAGPT_SYSTEM_PRIMER},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1500,
@@ -1200,11 +1208,17 @@ async def joke_prefix(ctx: commands.Context):
     await ctx.reply(f"😄 {get_joke()}")
 
 
-async def send_kiragpt_reply(send_func, prompt: str):
+def is_kira_creator(user) -> bool:
+    """True only if the person is a server Administrator — that's how KiraGPT
+    recognizes its creator, since Kiraizenin is the only admin."""
+    return isinstance(user, discord.Member) and user.guild_permissions.administrator
+
+
+async def send_kiragpt_reply(send_func, prompt: str, is_creator: bool = False):
     if not prompt.strip():
         await send_func("❌ Usage: `.kiragpt <what you want help with>`")
         return
-    reply_text = await generate_code_response(prompt)
+    reply_text = await generate_code_response(prompt, is_creator=is_creator)
     if len(reply_text) <= 1900:
         await send_func(reply_text)
         return
@@ -1218,6 +1232,7 @@ async def send_kiragpt_reply(send_func, prompt: str):
 @app_commands.describe(prompt="What do you want help with?")
 async def kiragpt(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
+    is_creator = is_kira_creator(interaction.user)
 
     async def send_func(text, file=None):
         if file:
@@ -1225,11 +1240,12 @@ async def kiragpt(interaction: discord.Interaction, prompt: str):
         else:
             await interaction.followup.send(text)
 
-    await send_kiragpt_reply(send_func, prompt)
+    await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
 
 
 @bot.command(name="kiragpt")
 async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
+    is_creator = is_kira_creator(ctx.author)
     async with ctx.typing():
         async def send_func(text, file=None):
             if file:
@@ -1237,7 +1253,7 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
             else:
                 await ctx.reply(text)
 
-        await send_kiragpt_reply(send_func, prompt)
+        await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
 
 
 @bot.tree.command(name="afk", description="Set yourself as AFK")
