@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.6"
+BOT_VERSION = "1.0.8"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -470,6 +470,8 @@ def build_menu_text():
         "┃ • 8ball [question] — ask the magic 8-ball\n"
         "┃ • joke — get a random joke\n"
         "┃ • kiragpt <prompt> — ask KiraGPT for coding help\n"
+        "┃ • translate <language> <text> — translate text\n"
+        "┃ • trt <language> — reply to a message to translate it\n"
         "┃\n"
         "┃ 𝕴𝖓𝖋𝖔\n"
         "┃ • avatar [user] — get a user's avatar\n"
@@ -1105,6 +1107,38 @@ async def generate_code_response(prompt: str, is_creator: bool = False) -> str:
         return f"❌ KiraGPT error: {e}"
 
 
+async def translate_text(language: str, text: str) -> str:
+    if not groq_client:
+        return "❌ Translation isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
+    system_prompt = (
+        "You are a translation engine. Translate the user's message into the "
+        "requested language. Reply with ONLY the translated text — no explanations, "
+        "no quotation marks, no extra commentary."
+    )
+    try:
+        response = await asyncio.to_thread(
+            groq_client.chat.completions.create,
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Translate this into {language}:\n\n{text}"},
+            ],
+            max_tokens=800,
+        )
+        translated = (response.choices[0].message.content or "").strip()
+        return translated if translated else "❌ Translation failed — try again."
+    except Exception as e:
+        return f"❌ Translation error: {e}"
+
+
+def build_translate_response(language: str, translated: str) -> str:
+    return (
+        f"🌐 *Translation ({language})*\n"
+        "──────────────────\n"
+        f"{translated}"
+    )
+
+
 def build_avatar_embed(user):
     embed = discord.Embed(title=f"{user.display_name}'s avatar")
     embed.set_image(url=user.display_avatar.url)
@@ -1254,6 +1288,57 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
                 await ctx.reply(text)
 
         await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
+
+
+@bot.tree.command(name="translate", description="Translate text into another language")
+@app_commands.describe(language="Target language (e.g. Spanish, French, Yoruba)", text="Text to translate")
+async def translate(interaction: discord.Interaction, language: str, text: str):
+    await interaction.response.defer()
+    translated = await translate_text(language, text)
+    await interaction.followup.send(build_translate_response(language, translated))
+
+
+@bot.command(name="translate")
+async def translate_prefix(ctx: commands.Context, language: str, *, text: str = ""):
+    if not text.strip():
+        await ctx.reply("❌ Usage: `.translate <language> <text>`")
+        return
+    async with ctx.typing():
+        translated = await translate_text(language, text)
+        await ctx.reply(build_translate_response(language, translated))
+
+
+@bot.command(name="trt")
+async def translate_reply(ctx: commands.Context, *, language: str = ""):
+    if not language.strip():
+        await ctx.reply("❌ Reply to a message with `.trt <language>` to translate it.")
+        return
+    if not ctx.message.reference:
+        await ctx.reply("❌ You need to reply to the message you want translated.")
+        return
+    try:
+        replied = ctx.message.reference.resolved
+        if replied is None or isinstance(replied, discord.DeletedReferencedMessage):
+            replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+    except (discord.NotFound, discord.HTTPException):
+        await ctx.reply("❌ Couldn't find the message you replied to.")
+        return
+    if not replied.content:
+        await ctx.reply("❌ That message has no text to translate.")
+        return
+    async with ctx.typing():
+        translated = await translate_text(language, replied.content)
+        await ctx.reply(build_translate_response(language, translated))
+
+
+@bot.tree.context_menu(name="Translate to English")
+async def translate_context_menu(interaction: discord.Interaction, message: discord.Message):
+    if not message.content:
+        await interaction.response.send_message("❌ That message has no text to translate.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    translated = await translate_text("English", message.content)
+    await interaction.followup.send(build_translate_response("English", translated), ephemeral=True)
 
 
 @bot.tree.command(name="afk", description="Set yourself as AFK")
