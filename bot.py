@@ -21,7 +21,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.0"
+BOT_VERSION = "1.0.1"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
