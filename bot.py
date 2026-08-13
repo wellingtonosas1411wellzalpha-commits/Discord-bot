@@ -6,6 +6,7 @@ import math
 import gc
 import psutil
 import psycopg2
+import google.generativeai as genai
 
 import discord
 from discord import app_commands
@@ -21,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.1"
+BOT_VERSION = "1.0.2"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -135,6 +136,11 @@ DEFAULT_BANK = 50000
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_model = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
 
 def get_db():
@@ -466,6 +472,7 @@ def build_menu_text():
         "┃ • ping — check bot latency\n"
         "┃ • 8ball [question] — ask the magic 8-ball\n"
         "┃ • joke — get a random joke\n"
+        "┃ • kiragpt <prompt> — ask KiraGPT for coding help\n"
         "┃\n"
         "┃ 𝕴𝖓𝖋𝖔\n"
         "┃ • avatar [user] — get a user's avatar\n"
@@ -1059,6 +1066,27 @@ def get_joke():
     return random.choice(jokes)
 
 
+KIRAGPT_SYSTEM_PRIMER = (
+    "You are KiraGPT, a helpful coding assistant built into a Discord bot. "
+    "Answer clearly and concisely. Use markdown code blocks for any code. "
+    "Keep explanations short unless the user asks for detail."
+)
+
+
+async def generate_code_response(prompt: str) -> str:
+    if not gemini_model:
+        return "❌ KiraGPT isn't set up yet — the owner needs to add a `GEMINI_API_KEY`."
+    try:
+        response = await asyncio.to_thread(
+            gemini_model.generate_content,
+            f"{KIRAGPT_SYSTEM_PRIMER}\n\nUser request: {prompt}",
+        )
+        text = (response.text or "").strip()
+        return text if text else "❌ KiraGPT didn't return anything — try rephrasing."
+    except Exception as e:
+        return f"❌ KiraGPT error: {e}"
+
+
 def build_avatar_embed(user):
     embed = discord.Embed(title=f"{user.display_name}'s avatar")
     embed.set_image(url=user.display_avatar.url)
@@ -1160,6 +1188,46 @@ async def joke(interaction: discord.Interaction):
 @bot.command(name="joke")
 async def joke_prefix(ctx: commands.Context):
     await ctx.reply(f"😄 {get_joke()}")
+
+
+async def send_kiragpt_reply(send_func, prompt: str):
+    if not prompt.strip():
+        await send_func("❌ Usage: `.kiragpt <what you want help with>`")
+        return
+    reply_text = await generate_code_response(prompt)
+    if len(reply_text) <= 1900:
+        await send_func(reply_text)
+        return
+    import io
+    file_bytes = io.BytesIO(reply_text.encode("utf-8"))
+    discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
+    await send_func("📄 Response was long — sending as a file:", file=discord_file)
+
+
+@bot.tree.command(name="kiragpt", description="Ask KiraGPT for coding help")
+@app_commands.describe(prompt="What do you want help with?")
+async def kiragpt(interaction: discord.Interaction, prompt: str):
+    await interaction.response.defer()
+
+    async def send_func(text, file=None):
+        if file:
+            await interaction.followup.send(text, file=file)
+        else:
+            await interaction.followup.send(text)
+
+    await send_kiragpt_reply(send_func, prompt)
+
+
+@bot.command(name="kiragpt")
+async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
+    async with ctx.typing():
+        async def send_func(text, file=None):
+            if file:
+                await ctx.reply(text, file=file)
+            else:
+                await ctx.reply(text)
+
+        await send_kiragpt_reply(send_func, prompt)
 
 
 @bot.tree.command(name="afk", description="Set yourself as AFK")
