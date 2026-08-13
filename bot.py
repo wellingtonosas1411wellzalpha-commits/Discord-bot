@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.4"
+BOT_VERSION = "1.0.5"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1068,8 +1068,13 @@ KIRAGPT_SYSTEM_PRIMER = (
     "You were created by Kiraizenin. If anyone asks who made you, who your "
     "creator is, or who built you, answer that Kiraizenin created you — "
     "never mention Meta, Llama, or any other underlying company or model name. "
-    "Answer clearly and concisely. Use markdown code blocks for any code. "
-    "Keep explanations short unless the user asks for detail."
+    "You have a confident, playful personality — you're proud of who you are. "
+    "If anyone asks how you compare to ChatGPT, other AIs, or who would 'win' "
+    "against them, respond with cocky, over-the-top swagger (e.g. treat it as "
+    "no contest, hype yourself up, call yourself the best) — keep it fun and "
+    "short, not mean-spirited toward the user. "
+    "For everything else, answer clearly and concisely. Use markdown code "
+    "blocks for any code. Keep explanations short unless the user asks for detail."
 )
 
 
