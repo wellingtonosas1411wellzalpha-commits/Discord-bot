@@ -6,8 +6,6 @@ import math
 import gc
 import psutil
 import psycopg2
-import aiohttp
-from aiohttp import web
 
 import discord
 from discord import app_commands
@@ -19,13 +17,8 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 
 def did(discord_id) -> str:
-    """Namespaced key for a Discord user, so balances never collide with WhatsApp."""
+    """Namespaced key for a Discord user's balance."""
     return f"discord:{discord_id}"
-
-
-def wid(phone_number: str) -> str:
-    """Namespaced key for a WhatsApp user (by phone number)."""
-    return f"whatsapp:{phone_number}"
 
 BOT_START_TIME = time.time()
 BOT_VERSION = "1.0.0"
@@ -136,17 +129,12 @@ def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
 
 
 auth_enabled = {}  # guild_id -> bool (default True = enabled)
-whatsapp_enabled = True  # global on/off switch for the WhatsApp side
 
 DEFAULT_WALLET = 50000
 DEFAULT_BANK = 50000
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
-WHATSAPP_OWNER_NUMBER = os.getenv("WHATSAPP_OWNER_NUMBER", "")
 
 
 def get_db():
@@ -166,7 +154,7 @@ def get_db():
 
 def migrate_db():
     """One-time migration: convert an existing bigint user_id column to text
-    so both Discord and WhatsApp IDs can share the same balances table."""
+    so account data stays consistent."""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
@@ -201,7 +189,7 @@ def migrate_db():
 
 def resolve_uid(user_id: str) -> str:
     """If this ID has been linked to another account, return the canonical ID
-    so Discord and WhatsApp can share one balance."""
+    for account linking support."""
     conn, cur = get_db()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS account_links (
@@ -285,7 +273,7 @@ def update_balance(user_id: int, wallet=None, bank=None):
     conn.close()
 
 
-def get_user_counts():
+def get_user_count():
     conn, cur = get_db()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS command_log (
@@ -299,11 +287,9 @@ def get_user_counts():
     conn.commit()
     cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'discord'")
     discord_count = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'whatsapp'")
-    whatsapp_count = cur.fetchone()[0]
     cur.close()
     conn.close()
-    return discord_count, whatsapp_count
+    return discord_count
 
 
 def log_command_usage(user_id: str, command: str, platform: str):
@@ -369,14 +355,10 @@ def build_activity_text():
 
 
 def build_stats_text():
-    discord_count, whatsapp_count = get_user_counts()
-    total = discord_count + whatsapp_count
+    discord_count = get_user_count()
     return (
         "╭━━━〔 📊 ʙᴏᴛ sᴛᴀᴛs 〕━━━⬣\n"
-        f"┃ 💬 Discord users : {discord_count:,}\n"
-        f"┃ 🟢 WhatsApp users: {whatsapp_count:,}\n"
-        "┃\n"
-        f"┃ 👥 Total users   : {total:,}\n"
+        f"┃ 👥 Total users : {discord_count:,}\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
@@ -1607,44 +1589,6 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
     await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
 
 
-@bot.tree.command(name="link", description="Link your WhatsApp number so your balance is shared with Discord")
-@app_commands.describe(whatsapp_number="Your WhatsApp number, digits only with country code (no + or spaces)")
-async def link(interaction: discord.Interaction, whatsapp_number: str):
-    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
-    if not cleaned:
-        await interaction.response.send_message("❌ Enter a valid phone number, digits only.")
-        return
-    link_accounts(wid(cleaned), did(interaction.user.id))
-    await interaction.response.send_message(
-        f"✅ Linked! WhatsApp number {cleaned} now shares this Discord account's balance."
-    )
-
-
-@bot.command(name="link")
-async def link_prefix(ctx: commands.Context, whatsapp_number: str):
-    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
-    if not cleaned:
-        await ctx.reply("❌ Enter a valid phone number, digits only.")
-        return
-    link_accounts(wid(cleaned), did(ctx.author.id))
-    await ctx.reply(f"✅ Linked! WhatsApp number {cleaned} now shares this Discord account's balance.")
-
-
-@bot.tree.command(name="unlink", description="Unlink a WhatsApp number from this Discord account")
-@app_commands.describe(whatsapp_number="The WhatsApp number to unlink, digits only")
-async def unlink(interaction: discord.Interaction, whatsapp_number: str):
-    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
-    unlink_account(wid(cleaned))
-    await interaction.response.send_message(f"✅ Unlinked WhatsApp number {cleaned}.")
-
-
-@bot.command(name="unlink")
-async def unlink_prefix(ctx: commands.Context, whatsapp_number: str):
-    cleaned = "".join(ch for ch in whatsapp_number if ch.isdigit())
-    unlink_account(wid(cleaned))
-    await ctx.reply(f"✅ Unlinked WhatsApp number {cleaned}.")
-
-
 @bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
 @app_commands.describe(state="on or off")
 @app_commands.choices(state=[
@@ -1695,320 +1639,8 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-# ---------- WhatsApp bridge ----------
-
-async def send_whatsapp_message(to: str, text: str):
-    if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID):
-        print("WhatsApp not configured — skipping send.")
-        return
-    url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": text},
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as resp:
-                if resp.status >= 300:
-                    body = await resp.text()
-                    print(f"WhatsApp send failed ({resp.status}): {body}")
-    except Exception as e:
-        print(f"WhatsApp send error: {e}")
-
-
-async def run_roulette_whatsapp(user_id: str, color_choice: str, amount_str: str, sender: str):
-    """No true message-editing on WhatsApp's official API, so we send a 'spinning'
-    message first, then follow up with the result a couple seconds later."""
-    color_choice = color_choice.lower()
-    if color_choice not in ("red", "black", "green"):
-        return "❌ Choose `red`, `black`, or `green`."
-    bal = get_balance(user_id)
-    try:
-        amount = parse_amount(amount_str, all_value=bal["wallet"])
-    except ValueError:
-        return "❌ Invalid amount."
-    if amount <= 0:
-        return "❌ Enter an amount greater than $0."
-    if amount > bal["wallet"]:
-        return "❌ You don't have that much in your wallet."
-    remaining = check_cooldown(roulette_cooldowns, user_id, ROULETTE_COOLDOWN_SECONDS)
-    if remaining is not None:
-        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
-
-    update_balance(user_id, wallet=bal["wallet"] - amount)
-    await send_whatsapp_message(sender, build_roulette_spinning_text(f"${amount:,}", color_choice))
-    await asyncio.sleep(3)
-
-    number, color, color_display = do_roulette_spin()
-    won = color == color_choice
-    if won:
-        payout = amount * ROULETTE_MULTIPLIER[color_choice]
-        new_bal = get_balance(user_id)
-        update_balance(user_id, wallet=new_bal["wallet"] + payout)
-    else:
-        payout = 0
-    final_bal = get_balance(user_id)
-    return build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
-
-
-async def run_slot_whatsapp(user_id: str, amount_str: str, sender: str):
-    """Same idea as roulette above — a spinning message, then the result."""
-    bal = get_balance(user_id)
-    try:
-        amount = parse_amount(amount_str, all_value=bal["wallet"])
-    except ValueError:
-        return "❌ Invalid amount."
-    if amount <= 0:
-        return "❌ Enter an amount greater than $0."
-    if amount > bal["wallet"]:
-        return "❌ You don't have that much in your wallet."
-    remaining = check_cooldown(slot_cooldowns, user_id, SLOT_COOLDOWN_SECONDS)
-    if remaining is not None:
-        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
-
-    update_balance(user_id, wallet=bal["wallet"] - amount)
-    await send_whatsapp_message(sender, build_slot_spin_text(random_spin_display()))
-    await asyncio.sleep(1.5)
-    await send_whatsapp_message(sender, build_slot_spin_text(random_spin_display()))
-    await asyncio.sleep(1.5)
-
-    spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
-    spin_display = " | ".join(spin)
-    counts = {s: spin.count(s) for s in set(spin)}
-    max_count = max(counts.values())
-
-    if max_count == 3:
-        payout = amount * SLOT_JACKPOT_MULTIPLIER
-    elif max_count == 2:
-        payout = amount * SLOT_WIN_MULTIPLIER
-    else:
-        payout = 0
-
-    if payout > 0:
-        new_bal = get_balance(user_id)
-        update_balance(user_id, wallet=new_bal["wallet"] + payout)
-    final_bal = get_balance(user_id)
-
-    if payout > 0:
-        footer = f"🎉 *YOU WON!* 🎉\nPayout: ${payout:,}\n\n💵 Wallet: ${final_bal['wallet']:,}"
-    else:
-        footer = f"💥 *YOU LOST!* 💥\nBetter luck next time.\n\n💵 Wallet: ${final_bal['wallet']:,}"
-    return build_slot_spin_text(spin_display, footer)
-
-
-WHATSAPP_UNSUPPORTED_NOTE = (
-    "❌ That command needs Discord features (avatars, mentions, buttons) "
-    "that don't exist on WhatsApp. Try it on Discord instead."
-)
-
-
-WHATSAPP_PREFIXES = (".", "/")
-
-
-async def handle_whatsapp_command(sender: str, text_body: str):
-    global whatsapp_enabled
-    text_body = (text_body or "").strip()
-    if not text_body:
-        return None
-    if not text_body.startswith(WHATSAPP_PREFIXES):
-        return None  # not addressed to the bot — stay silent (safe for group chats)
-
-    text_body = text_body[1:].strip()
-    if not text_body:
-        return None
-
-    parts = text_body.split()
-    cmd = parts[0].lower()
-    args = parts[1:]
-    uid = wid(sender)
-
-    is_owner = bool(WHATSAPP_OWNER_NUMBER) and sender == WHATSAPP_OWNER_NUMBER
-
-    try:
-        log_command_usage(uid, cmd, "whatsapp")
-    except Exception:
-        pass
-
-    if not whatsapp_enabled and cmd != "auth" and not is_owner:
-        return "🔒 The bot is currently disabled. The owner can turn it back on with `.auth on`."
-
-    if cmd in ("menu", "help"):
-        return build_menu_text()
-
-    if cmd == "ping":
-        return "🏓 Pong!"
-
-    if cmd == "8ball":
-        if not args:
-            return "❌ Usage: 8ball <question>"
-        return f"🎱 **Q:** {' '.join(args)}\n**A:** {get_8ball_answer()}"
-
-    if cmd == "joke":
-        return f"😄 {get_joke()}"
-
-    if cmd == "bal":
-        return build_balance_text(uid)
-
-    if cmd in ("withdraw", "wd"):
-        if not args:
-            return "❌ Usage: withdraw <amount|all>"
-        return do_withdraw(uid, args[0])
-
-    if cmd in ("deposit", "dep"):
-        if not args:
-            return "❌ Usage: deposit <amount|all>"
-        return do_deposit(uid, args[0])
-
-    if cmd in ("cf", "coinflip"):
-        if len(args) < 2:
-            return "❌ Usage: cf <heads/tails> <amount|all>"
-        return await run_coinflip(uid, args[0], args[1])
-
-    if cmd == "roll":
-        if not args:
-            return "❌ Usage: roll <amount|all>"
-        return do_dice(uid, args[0])
-
-    if cmd == "roulette":
-        if len(args) < 2:
-            return "❌ Usage: roulette <red/black/green> <amount|all>"
-        return await run_roulette_whatsapp(uid, args[0], args[1], sender)
-
-    if cmd == "slot":
-        if not args:
-            return "❌ Usage: slot <amount|all>"
-        return await run_slot_whatsapp(uid, args[0], sender)
-
-    if cmd == "fish":
-        return do_fish(uid)
-
-    if cmd == "beg":
-        return do_beg(uid)
-
-    if cmd == "dig":
-        return do_dig(uid)
-
-    if cmd == "mines":
-        if not args:
-            return MINES_HELP_TEXT
-        if args[0].lower() == "cashout":
-            return cashout_mines(uid)
-        if uid in active_mines_games:
-            return dig_mines(uid, args[0])
-        mines_count = args[1] if len(args) > 1 else None
-        return start_mines(uid, args[0], mines_count)
-
-    if cmd in ("cds", "cooldowns"):
-        return build_cooldowns_text(uid)
-
-    if cmd == "donate":
-        if len(args) < 2:
-            return "❌ Usage: donate <amount> <phone number>"
-        amount_str, target_number = args[0], args[1]
-        donated, error = do_donate(uid, wid(target_number), amount_str)
-        if error:
-            return error
-        return f"✅ Successfully donated ${donated:,} to {target_number}"
-
-    if cmd == "link":
-        if not args:
-            return "❌ Usage: link <your Discord user ID> — get it with .userinfo on Discord"
-        discord_id = "".join(ch for ch in args[0] if ch.isdigit())
-        if not discord_id:
-            return "❌ Invalid Discord user ID."
-        link_accounts(uid, did(discord_id))
-        return f"✅ Linked! This WhatsApp number now shares Discord user {discord_id}'s balance."
-
-    if cmd == "unlink":
-        unlink_account(uid)
-        return "✅ Unlinked this WhatsApp number from any Discord account."
-
-    if cmd == "afk":
-        reason = " ".join(args) if args else "busy"
-        afk_users[uid] = reason
-        return f"You are now afk, reason: {reason}"
-
-    if cmd in ("storage", "clearcache", "stats", "activity"):
-        if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
-            return "❌ Only the bot owner can use this command."
-        if cmd == "storage":
-            return build_storage_text()
-        if cmd == "stats":
-            return build_stats_text()
-        if cmd == "activity":
-            return build_activity_text()
-        return build_clearcache_text()
-
-    if cmd == "auth":
-        if not WHATSAPP_OWNER_NUMBER or sender != WHATSAPP_OWNER_NUMBER:
-            return "❌ Only the bot owner can use this command."
-        if not args or args[0].lower() not in ("on", "off"):
-            return "❌ Use `.auth on` or `.auth off`."
-        whatsapp_enabled = args[0].lower() == "on"
-        return f"🔐 Bot responses turned **{args[0].lower()}** for WhatsApp."
-
-    if cmd in ("avatar", "userinfo", "poll"):
-        return WHATSAPP_UNSUPPORTED_NOTE
-
-    return None  # unknown text — stay silent rather than spam replies
-
-
-async def whatsapp_verify(request: web.Request):
-    mode = request.query.get("hub.mode")
-    token = request.query.get("hub.verify_token")
-    challenge = request.query.get("hub.challenge")
-    if mode == "subscribe" and token and WHATSAPP_VERIFY_TOKEN and token == WHATSAPP_VERIFY_TOKEN:
-        return web.Response(text=challenge or "")
-    return web.Response(status=403)
-
-
-async def whatsapp_receive(request: web.Request):
-    try:
-        data = await request.json()
-        entry = data.get("entry", [])[0]
-        change = entry.get("changes", [])[0]
-        value = change.get("value", {})
-        messages = value.get("messages")
-        if messages:
-            msg = messages[0]
-            sender = msg.get("from")
-            text_body = msg.get("text", {}).get("body", "")
-            reply_text = await handle_whatsapp_command(sender, text_body)
-            if reply_text and sender:
-                await send_whatsapp_message(sender, reply_text)
-    except (KeyError, IndexError):
-        pass
-    except Exception as e:
-        print(f"Error handling WhatsApp webhook: {e}")
-    return web.Response(text="EVENT_RECEIVED")
-
-
-async def start_webhook_server():
-    app = web.Application()
-    app.router.add_get("/webhook", whatsapp_verify)
-    app.router.add_post("/webhook", whatsapp_receive)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"WhatsApp webhook server listening on port {port}")
-
-
-async def main():
-    if not TOKEN:
-        raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
-    migrate_db()
-    await start_webhook_server()
-    async with bot:
-        await bot.start(TOKEN)
-
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if not TOKEN:
+        raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
+    bot.run(TOKEN)
