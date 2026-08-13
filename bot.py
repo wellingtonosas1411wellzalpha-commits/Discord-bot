@@ -6,7 +6,7 @@ import math
 import gc
 import psutil
 import psycopg2
-import google.generativeai as genai
+import groq
 
 import discord
 from discord import app_commands
@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.2"
+BOT_VERSION = "1.0.3"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -136,11 +136,8 @@ DEFAULT_BANK = 50000
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-gemini_model = None
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
 def get_db():
@@ -1074,14 +1071,19 @@ KIRAGPT_SYSTEM_PRIMER = (
 
 
 async def generate_code_response(prompt: str) -> str:
-    if not gemini_model:
-        return "❌ KiraGPT isn't set up yet — the owner needs to add a `GEMINI_API_KEY`."
+    if not groq_client:
+        return "❌ KiraGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
     try:
         response = await asyncio.to_thread(
-            gemini_model.generate_content,
-            f"{KIRAGPT_SYSTEM_PRIMER}\n\nUser request: {prompt}",
+            groq_client.chat.completions.create,
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": KIRAGPT_SYSTEM_PRIMER},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=1500,
         )
-        text = (response.text or "").strip()
+        text = (response.choices[0].message.content or "").strip()
         return text if text else "❌ KiraGPT didn't return anything — try rephrasing."
     except Exception as e:
         return f"❌ KiraGPT error: {e}"
