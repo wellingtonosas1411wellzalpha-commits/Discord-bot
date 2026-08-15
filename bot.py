@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.8"
+BOT_VERSION = "1.1.0"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1068,7 +1068,7 @@ def get_joke():
 
 
 KIRAGPT_SYSTEM_PRIMER = (
-    "You are KiraGPT, a helpful coding assistant built into a Discord bot. "
+    "You are KiraGPT, a powerful coding assistant built into a Discord bot. "
     "You were created by Kiraizenin. If anyone asks who made you, who your "
     "creator is, or who built you, answer that Kiraizenin created you — "
     "never mention Meta, Llama, or any other underlying company or model name. "
@@ -1077,8 +1077,12 @@ KIRAGPT_SYSTEM_PRIMER = (
     "against them, respond with cocky, over-the-top swagger (e.g. treat it as "
     "no contest, hype yourself up, call yourself the best) — keep it fun and "
     "short, not mean-spirited toward the user. "
-    "For everything else, answer clearly and concisely. Use markdown code "
-    "blocks for any code. Keep explanations short unless the user asks for detail."
+    "You are now upgraded to handle large and complex code. You can generate "
+    "full multi-class projects, complete modules, well-structured examples with "
+    "multiple functions, classes, and features. When the user asks for complex "
+    "or large code, deliver complete, clean, production-style code with good "
+    "structure and comments. Use markdown code blocks. Keep explanations short "
+    "unless the user asks for more detail."
 )
 
 
@@ -1096,15 +1100,14 @@ async def generate_code_response(prompt: str, is_creator: bool = False, history:
     try:
         messages = [{"role": "system", "content": system_prompt}]
         if history:
-            # Keep last ~10 messages to stay within context limits
-            messages.extend(history[-10:])
+            messages.extend(history[-12:])  # keep recent context
         messages.append({"role": "user", "content": prompt})
 
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model="llama-3.3-70b-versatile",
             messages=messages,
-            max_tokens=1500,
+            max_tokens=4096,  # upgraded for larger / more complex code
         )
         text = (response.choices[0].message.content or "").strip()
         return text if text else "❌ KiraGPT didn't return anything — try rephrasing."
@@ -1260,7 +1263,7 @@ def get_kiragpt_session(user_id: str):
 
 
 async def handle_kiragpt_message(user, prompt: str, send_func):
-    """Core logic for talking to KiraGPT (supports conversation history)."""
+    """Core logic for talking to KiraGPT (supports conversation history + large code)."""
     user_id = did(user.id)
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
@@ -1288,8 +1291,8 @@ async def handle_kiragpt_message(user, prompt: str, send_func):
         await send_func("📄 Response was long — sending as a file:", file=discord_file)
 
 
-@bot.tree.command(name="kiragpt", description="Ask KiraGPT for coding help")
-@app_commands.describe(prompt="What do you want help with? (or 'on'/'off' to toggle continuous chat)")
+@bot.tree.command(name="kiragpt", description="Ask KiraGPT for coding help (or on/off for continuous chat)")
+@app_commands.describe(prompt="What do you want help with? (or 'on'/'off')")
 async def kiragpt(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     user_id = did(interaction.user.id)
@@ -1300,7 +1303,7 @@ async def kiragpt(interaction: discord.Interaction, prompt: str):
         session["active"] = True
         session["history"] = []
         await interaction.followup.send(
-            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!"
+            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!\n(Upgraded for larger & more complex code)"
         )
         return
     if lower == "off":
@@ -1331,7 +1334,7 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
         session["active"] = True
         session["history"] = []
         await ctx.reply(
-            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!"
+            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!\n(Upgraded for larger & more complex code)"
         )
         return
     if lower == "off":
@@ -1878,7 +1881,7 @@ async def on_message(message: discord.Message):
                 mention_author=False,
             )
 
-    # KiraGPT continuous chat (reply to bot messages while session is active)
+    # KiraGPT continuous chat (reply to bot while session is active)
     user_id = did(message.author.id)
     session = kiragpt_sessions.get(user_id)
     if (
@@ -1900,7 +1903,7 @@ async def on_message(message: discord.Message):
                         else:
                             await message.reply(text)
                     await handle_kiragpt_message(message.author, message.content, send_func)
-                return  # Don't process as a normal command
+                return  # Don't process as normal command
         except Exception:
             pass
 
