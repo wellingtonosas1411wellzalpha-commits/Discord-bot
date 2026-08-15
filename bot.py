@@ -89,6 +89,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     raise error
 
 afk_users = {}  # user_id -> reason
+kiragpt_sessions = {}  # user_id -> {"active": bool, "history": list}
 
 active_mines_games = {}  # user_id -> game state
 MINES_HOUSE_EDGE = 0.97
@@ -469,7 +470,8 @@ def build_menu_text():
         "┃ • ping — check bot latency\n"
         "┃ • 8ball [question] — ask the magic 8-ball\n"
         "┃ • joke — get a random joke\n"
-        "┃ • kiragpt <prompt> — ask KiraGPT for coding help\n"
+        "┃ • kiragpt on/off — toggle continuous chat\n"
+        "┃ • kiragpt <prompt> — talk to KiraGPT (reply to continue)\n"
         "┃ • translate <language> <text> — translate text\n"
         "┃ • trt <language> — reply to a message to translate it\n"
         "┃\n"
@@ -1080,7 +1082,7 @@ KIRAGPT_SYSTEM_PRIMER = (
 )
 
 
-async def generate_code_response(prompt: str, is_creator: bool = False) -> str:
+async def generate_code_response(prompt: str, is_creator: bool = False, history: list = None) -> str:
     if not groq_client:
         return "❌ KiraGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
     system_prompt = KIRAGPT_SYSTEM_PRIMER
@@ -1092,13 +1094,16 @@ async def generate_code_response(prompt: str, is_creator: bool = False) -> str:
             "that they themselves are Kiraizenin."
         )
     try:
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            # Keep last ~10 messages to stay within context limits
+            messages.extend(history[-10:])
+        messages.append({"role": "user", "content": prompt})
+
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             max_tokens=1500,
         )
         text = (response.choices[0].message.content or "").strip()
@@ -1248,25 +1253,63 @@ def is_kira_creator(user) -> bool:
     return isinstance(user, discord.Member) and user.guild_permissions.administrator
 
 
-async def send_kiragpt_reply(send_func, prompt: str, is_creator: bool = False):
+def get_kiragpt_session(user_id: str):
+    if user_id not in kiragpt_sessions:
+        kiragpt_sessions[user_id] = {"active": False, "history": []}
+    return kiragpt_sessions[user_id]
+
+
+async def handle_kiragpt_message(user, prompt: str, send_func):
+    """Core logic for talking to KiraGPT (supports conversation history)."""
+    user_id = did(user.id)
+    session = get_kiragpt_session(user_id)
+    is_creator = is_kira_creator(user)
+
     if not prompt.strip():
-        await send_func("❌ Usage: `.kiragpt <what you want help with>`")
+        await send_func("❌ Usage: `.kiragpt <message>` or `.kiragpt on/off`")
         return
-    reply_text = await generate_code_response(prompt, is_creator=is_creator)
+
+    reply_text = await generate_code_response(
+        prompt, is_creator=is_creator, history=session["history"]
+    )
+
+    # Save to history
+    session["history"].append({"role": "user", "content": prompt})
+    session["history"].append({"role": "assistant", "content": reply_text})
+    if len(session["history"]) > 20:
+        session["history"] = session["history"][-20:]
+
     if len(reply_text) <= 1900:
         await send_func(reply_text)
-        return
-    import io
-    file_bytes = io.BytesIO(reply_text.encode("utf-8"))
-    discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
-    await send_func("📄 Response was long — sending as a file:", file=discord_file)
+    else:
+        import io
+        file_bytes = io.BytesIO(reply_text.encode("utf-8"))
+        discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
+        await send_func("📄 Response was long — sending as a file:", file=discord_file)
 
 
 @bot.tree.command(name="kiragpt", description="Ask KiraGPT for coding help")
-@app_commands.describe(prompt="What do you want help with?")
+@app_commands.describe(prompt="What do you want help with? (or 'on'/'off' to toggle continuous chat)")
 async def kiragpt(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
-    is_creator = is_kira_creator(interaction.user)
+    user_id = did(interaction.user.id)
+    session = get_kiragpt_session(user_id)
+    lower = prompt.strip().lower()
+
+    if lower == "on":
+        session["active"] = True
+        session["history"] = []
+        await interaction.followup.send(
+            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!"
+        )
+        return
+    if lower == "off":
+        session["active"] = False
+        session["history"] = []
+        await interaction.followup.send(
+            "✅ KiraGPT continuous chat is now **OFF**. History cleared."
+        )
+        return
 
     async def send_func(text, file=None):
         if file:
@@ -1274,12 +1317,31 @@ async def kiragpt(interaction: discord.Interaction, prompt: str):
         else:
             await interaction.followup.send(text)
 
-    await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
+    await handle_kiragpt_message(interaction.user, prompt, send_func)
 
 
 @bot.command(name="kiragpt")
 async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
-    is_creator = is_kira_creator(ctx.author)
+    user_id = did(ctx.author.id)
+    session = get_kiragpt_session(user_id)
+    prompt = prompt.strip()
+    lower = prompt.lower()
+
+    if lower == "on":
+        session["active"] = True
+        session["history"] = []
+        await ctx.reply(
+            "✅ KiraGPT continuous chat is now **ON**.\nReply to my messages to keep talking!"
+        )
+        return
+    if lower == "off":
+        session["active"] = False
+        session["history"] = []
+        await ctx.reply(
+            "✅ KiraGPT continuous chat is now **OFF**. History cleared."
+        )
+        return
+
     async with ctx.typing():
         async def send_func(text, file=None):
             if file:
@@ -1287,7 +1349,7 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
             else:
                 await ctx.reply(text)
 
-        await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
+        await handle_kiragpt_message(ctx.author, prompt, send_func)
 
 
 @bot.tree.command(name="translate", description="Translate text into another language")
@@ -1804,6 +1866,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    # AFK handling
     if did(message.author.id) in afk_users:
         del afk_users[did(message.author.id)]
         await message.reply(f"Welcome back {message.author.mention}, I removed your afk.", mention_author=False)
@@ -1814,6 +1877,32 @@ async def on_message(message: discord.Message):
                 f"{user.display_name} is afk: {afk_users[did(user.id)]}",
                 mention_author=False,
             )
+
+    # KiraGPT continuous chat (reply to bot messages while session is active)
+    user_id = did(message.author.id)
+    session = kiragpt_sessions.get(user_id)
+    if (
+        session
+        and session.get("active")
+        and message.reference
+        and message.content
+        and message.content.strip()
+    ):
+        try:
+            ref = message.reference.resolved
+            if ref is None:
+                ref = await message.channel.fetch_message(message.reference.message_id)
+            if ref and ref.author.id == bot.user.id:
+                async with message.channel.typing():
+                    async def send_func(text, file=None):
+                        if file:
+                            await message.reply(text, file=file)
+                        else:
+                            await message.reply(text)
+                    await handle_kiragpt_message(message.author, message.content, send_func)
+                return  # Don't process as a normal command
+        except Exception:
+            pass
 
     await bot.process_commands(message)
 
