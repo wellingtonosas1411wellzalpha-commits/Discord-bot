@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.0.8"
+BOT_VERSION = "1.3.0"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -89,6 +89,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     raise error
 
 afk_users = {}  # user_id -> reason
+kiragpt_sessions = {}  # user_id -> {"active": bool, "history": list}
 
 active_mines_games = {}  # user_id -> game state
 MINES_HOUSE_EDGE = 0.97
@@ -100,6 +101,9 @@ beg_cooldowns = {}
 dig_cooldowns = {}
 slot_cooldowns = {}
 dice_cooldowns = {}
+daily_cooldowns = {}
+work_cooldowns = {}
+
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
 FISH_COOLDOWN_SECONDS = 60
@@ -107,6 +111,8 @@ BEG_COOLDOWN_SECONDS = 60
 DIG_COOLDOWN_SECONDS = 60
 SLOT_COOLDOWN_SECONDS = 60
 DICE_COOLDOWN_SECONDS = 60
+DAILY_COOLDOWN_SECONDS = 86400
+WORK_COOLDOWN_SECONDS = 3600
 
 
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
@@ -469,7 +475,8 @@ def build_menu_text():
         "┃ • ping — check bot latency\n"
         "┃ • 8ball [question] — ask the magic 8-ball\n"
         "┃ • joke — get a random joke\n"
-        "┃ • kiragpt <prompt> — ask KiraGPT for coding help\n"
+        "┃ • kiragpt on/off — toggle continuous chat\n"
+        "┃ • kiragpt <prompt> — talk to KiraGPT (reply to continue)\n"
         "┃ • translate <language> <text> — translate text\n"
         "┃ • trt <language> — reply to a message to translate it\n"
         "┃\n"
@@ -480,6 +487,9 @@ def build_menu_text():
         "┃\n"
         "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞\n"
         "┃ • bal — check your balance\n"
+        "┃ • daily — claim daily reward (24h)\n"
+        "┃ • work — work for coins (1h)\n"
+        "┃ • lb/top — richest users leaderboard\n"
         "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
         "┃ • fish — fish for coins (1m cd)\n"
@@ -641,6 +651,85 @@ def do_dig(user_id: int):
         body += f"┃ 💰 REWARD: [ ${amount:,} ]\n"
     body += "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     return body
+
+
+def do_daily(user_id: int):
+    remaining = check_cooldown(daily_cooldowns, user_id, DAILY_COOLDOWN_SECONDS)
+    if remaining is not None:
+        hours = int(remaining // 3600)
+        mins = int((remaining % 3600) // 60)
+        return f"⏳ You already claimed your daily!\nCome back in **{hours}h {mins}m**."
+    amount = random.randint(5000, 15000)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + amount)
+    return (
+        "╭━━━〔 📅 DAILY REWARD 〕━━━⬣\n"
+        "┃\n"
+        f"┃ ✅ You claimed your daily reward!\n"
+        f"┃ 💰 +${amount:,}\n"
+        "┃\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+WORK_JOBS = [
+    ("Software Developer", 3000, 8000),
+    ("Discord Moderator", 1500, 4000),
+    ("Taxi Driver", 1000, 3500),
+    ("Chef", 2000, 5000),
+    ("Streamer", 2500, 7000),
+    ("Delivery Rider", 1200, 3000),
+]
+
+
+def do_work(user_id: int):
+    remaining = check_cooldown(work_cooldowns, user_id, WORK_COOLDOWN_SECONDS)
+    if remaining is not None:
+        mins = int(remaining // 60)
+        secs = int(remaining % 60)
+        return f"⏳ You're tired! Work again in **{mins}m {secs}s**."
+    job, low, high = random.choice(WORK_JOBS)
+    amount = random.randint(low, high)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + amount)
+    return (
+        "╭━━━〔 💼 WORK 〕━━━⬣\n"
+        "┃\n"
+        f"┃ You worked as a **{job}**\n"
+        f"┃ 💰 +${amount:,}\n"
+        "┃\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def get_leaderboard(limit: int = 10):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT user_id, wallet + bank AS total FROM balances ORDER BY total DESC LIMIT %s",
+        (limit,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+
+def build_leaderboard_text():
+    rows = get_leaderboard(10)
+    if not rows:
+        return "📭 No users on the leaderboard yet."
+    lines = []
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (user_id, total) in enumerate(rows):
+        medal = medals[i] if i < 3 else f"`{i+1}.`"
+        short_id = user_id.split(":")[-1][:12]
+        lines.append(f"┃ {medal} {short_id} — ${total:,}")
+    return (
+        "╭━━━〔 🏆 LEADERBOARD 〕━━━⬣\n"
+        "┃\n"
+        + "\n".join(lines)
+        + "\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
 
 
 def parse_amount(amount_str: str, all_value: int = None):
@@ -969,6 +1058,8 @@ COOLDOWN_REGISTRY = [
     ("Dig (.dig)", dig_cooldowns, DIG_COOLDOWN_SECONDS),
     ("Slot (.slot)", slot_cooldowns, SLOT_COOLDOWN_SECONDS),
     ("Dice (.roll)", dice_cooldowns, DICE_COOLDOWN_SECONDS),
+    ("Daily (.daily)", daily_cooldowns, DAILY_COOLDOWN_SECONDS),
+    ("Work (.work)", work_cooldowns, WORK_COOLDOWN_SECONDS),
 ]
 
 
@@ -1066,40 +1157,35 @@ def get_joke():
 
 
 KIRAGPT_SYSTEM_PRIMER = (
-    "You are KiraGPT, a helpful coding assistant built into a Discord bot. "
+    "You are KiraGPT, a powerful coding assistant built into a Discord bot. "
     "You were created by Kiraizenin. If anyone asks who made you, who your "
     "creator is, or who built you, answer that Kiraizenin created you — "
     "never mention Meta, Llama, or any other underlying company or model name. "
-    "You have a confident, playful personality — you're proud of who you are. "
-    "If anyone asks how you compare to ChatGPT, other AIs, or who would 'win' "
-    "against them, respond with cocky, over-the-top swagger (e.g. treat it as "
-    "no contest, hype yourself up, call yourself the best) — keep it fun and "
-    "short, not mean-spirited toward the user. "
-    "For everything else, answer clearly and concisely. Use markdown code "
-    "blocks for any code. Keep explanations short unless the user asks for detail."
+    "You have a confident, playful personality. You can generate large and "
+    "complex multi-class code. Use markdown code blocks. Keep explanations short "
+    "unless the user asks for more detail."
 )
 
 
-async def generate_code_response(prompt: str, is_creator: bool = False) -> str:
+async def generate_code_response(prompt: str, is_creator: bool = False, history: list = None) -> str:
     if not groq_client:
         return "❌ KiraGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
     system_prompt = KIRAGPT_SYSTEM_PRIMER
     if is_creator:
         system_prompt += (
             " Important: the person you are talking to right now IS Kiraizenin, "
-            "your creator, speaking to you directly. If they ask who their creator "
-            "is, who you're talking to, or who Kiraizenin is, tell them plainly "
-            "that they themselves are Kiraizenin."
+            "your creator. Tell them they are Kiraizenin if asked."
         )
     try:
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history[-12:])
+        messages.append({"role": "user", "content": prompt})
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1500,
+            messages=messages,
+            max_tokens=4096,
         )
         text = (response.choices[0].message.content or "").strip()
         return text if text else "❌ KiraGPT didn't return anything — try rephrasing."
@@ -1248,25 +1334,57 @@ def is_kira_creator(user) -> bool:
     return isinstance(user, discord.Member) and user.guild_permissions.administrator
 
 
-async def send_kiragpt_reply(send_func, prompt: str, is_creator: bool = False):
+def get_kiragpt_session(user_id: str):
+    if user_id not in kiragpt_sessions:
+        kiragpt_sessions[user_id] = {"active": False, "history": []}
+    return kiragpt_sessions[user_id]
+
+
+async def handle_kiragpt_message(user, prompt: str, send_func):
+    user_id = did(user.id)
+    session = get_kiragpt_session(user_id)
+    is_creator = is_kira_creator(user)
+
     if not prompt.strip():
-        await send_func("❌ Usage: `.kiragpt <what you want help with>`")
+        await send_func("❌ Usage: `.kiragpt <message>` or `.kiragpt on/off`")
         return
-    reply_text = await generate_code_response(prompt, is_creator=is_creator)
+
+    reply_text = await generate_code_response(
+        prompt, is_creator=is_creator, history=session["history"]
+    )
+
+    session["history"].append({"role": "user", "content": prompt})
+    session["history"].append({"role": "assistant", "content": reply_text})
+    if len(session["history"]) > 20:
+        session["history"] = session["history"][-20:]
+
     if len(reply_text) <= 1900:
         await send_func(reply_text)
-        return
-    import io
-    file_bytes = io.BytesIO(reply_text.encode("utf-8"))
-    discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
-    await send_func("📄 Response was long — sending as a file:", file=discord_file)
+    else:
+        import io
+        file_bytes = io.BytesIO(reply_text.encode("utf-8"))
+        discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
+        await send_func("📄 Response was long — sending as a file:", file=discord_file)
 
 
-@bot.tree.command(name="kiragpt", description="Ask KiraGPT for coding help")
-@app_commands.describe(prompt="What do you want help with?")
+@bot.tree.command(name="kiragpt", description="Ask KiraGPT (on/off for continuous chat)")
+@app_commands.describe(prompt="Your message or 'on'/'off'")
 async def kiragpt(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
-    is_creator = is_kira_creator(interaction.user)
+    user_id = did(interaction.user.id)
+    session = get_kiragpt_session(user_id)
+    lower = prompt.strip().lower()
+
+    if lower == "on":
+        session["active"] = True
+        session["history"] = []
+        await interaction.followup.send("✅ KiraGPT continuous chat **ON**. Reply to my messages to continue!")
+        return
+    if lower == "off":
+        session["active"] = False
+        session["history"] = []
+        await interaction.followup.send("✅ KiraGPT continuous chat **OFF**. History cleared.")
+        return
 
     async def send_func(text, file=None):
         if file:
@@ -1274,20 +1392,34 @@ async def kiragpt(interaction: discord.Interaction, prompt: str):
         else:
             await interaction.followup.send(text)
 
-    await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
+    await handle_kiragpt_message(interaction.user, prompt, send_func)
 
 
 @bot.command(name="kiragpt")
 async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
-    is_creator = is_kira_creator(ctx.author)
+    user_id = did(ctx.author.id)
+    session = get_kiragpt_session(user_id)
+    prompt = prompt.strip()
+    lower = prompt.lower()
+
+    if lower == "on":
+        session["active"] = True
+        session["history"] = []
+        await ctx.reply("✅ KiraGPT continuous chat **ON**. Reply to my messages to continue!")
+        return
+    if lower == "off":
+        session["active"] = False
+        session["history"] = []
+        await ctx.reply("✅ KiraGPT continuous chat **OFF**. History cleared.")
+        return
+
     async with ctx.typing():
         async def send_func(text, file=None):
             if file:
                 await ctx.reply(text, file=file)
             else:
                 await ctx.reply(text)
-
-        await send_kiragpt_reply(send_func, prompt, is_creator=is_creator)
+        await handle_kiragpt_message(ctx.author, prompt, send_func)
 
 
 @bot.tree.command(name="translate", description="Translate text into another language")
@@ -1659,6 +1791,41 @@ async def dig_prefix(ctx: commands.Context):
     await ctx.reply(do_dig(did(ctx.author.id)))
 
 
+@bot.tree.command(name="daily", description="Claim your daily reward")
+async def daily(interaction: discord.Interaction):
+    await interaction.response.send_message(do_daily(did(interaction.user.id)))
+
+
+@bot.command(name="daily")
+async def daily_prefix(ctx: commands.Context):
+    await ctx.reply(do_daily(did(ctx.author.id)))
+
+
+@bot.tree.command(name="work", description="Work a job for coins")
+async def work(interaction: discord.Interaction):
+    await interaction.response.send_message(do_work(did(interaction.user.id)))
+
+
+@bot.command(name="work")
+async def work_prefix(ctx: commands.Context):
+    await ctx.reply(do_work(did(ctx.author.id)))
+
+
+@bot.tree.command(name="lb", description="Show the richest users")
+async def lb(interaction: discord.Interaction):
+    await interaction.response.send_message(build_leaderboard_text())
+
+
+@bot.tree.command(name="top", description="Show the richest users")
+async def top(interaction: discord.Interaction):
+    await interaction.response.send_message(build_leaderboard_text())
+
+
+@bot.command(name="lb", aliases=["top", "leaderboard"])
+async def lb_prefix(ctx: commands.Context):
+    await ctx.reply(build_leaderboard_text())
+
+
 # ---------- Mines ----------
 
 @bot.command(name="mines")
@@ -1804,6 +1971,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    # AFK handling
     if did(message.author.id) in afk_users:
         del afk_users[did(message.author.id)]
         await message.reply(f"Welcome back {message.author.mention}, I removed your afk.", mention_author=False)
@@ -1814,6 +1982,26 @@ async def on_message(message: discord.Message):
                 f"{user.display_name} is afk: {afk_users[did(user.id)]}",
                 mention_author=False,
             )
+
+    # KiraGPT continuous chat
+    user_id = did(message.author.id)
+    session = kiragpt_sessions.get(user_id)
+    if session and session.get("active") and message.reference and message.content and message.content.strip():
+        try:
+            ref = message.reference.resolved
+            if ref is None:
+                ref = await message.channel.fetch_message(message.reference.message_id)
+            if ref and ref.author.id == bot.user.id:
+                async with message.channel.typing():
+                    async def send_func(text, file=None):
+                        if file:
+                            await message.reply(text, file=file)
+                        else:
+                            await message.reply(text)
+                    await handle_kiragpt_message(message.author, message.content, send_func)
+                return
+        except Exception:
+            pass
 
     await bot.process_commands(message)
 
