@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.3.0"
+BOT_VERSION = "1.3.1"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1340,20 +1340,63 @@ def get_kiragpt_session(user_id: str):
     return kiragpt_sessions[user_id]
 
 
-async def handle_kiragpt_message(user, prompt: str, send_func):
+SUPPORTED_FILE_EXTENSIONS = {
+    ".py", ".txt", ".js", ".ts", ".jsx", ".tsx", ".json", ".md", ".html", ".css",
+    ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php", ".sql",
+    ".yaml", ".yml", ".xml", ".csv", ".log", ".sh", ".bat", ".ini", ".env", ".toml"
+}
+
+
+async def read_attachment_text(attachment: discord.Attachment) -> str | None:
+    """Download and read text content from a Discord attachment if it's a supported file type."""
+    if not attachment.filename:
+        return None
+    ext = "." + attachment.filename.rsplit(".", 1)[-1].lower() if "." in attachment.filename else ""
+    if ext not in SUPPORTED_FILE_EXTENSIONS:
+        return None
+    if attachment.size > 100_000:  # ~100 KB limit
+        return None
+    try:
+        data = await attachment.read()
+        # Try utf-8 first, then latin-1 as fallback
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data.decode("latin-1", errors="replace")
+    except Exception:
+        return None
+
+
+async def get_files_from_message(message: discord.Message) -> str:
+    """Extract text content from all supported attachments in a message."""
+    if not message.attachments:
+        return ""
+    parts = []
+    for att in message.attachments:
+        content = await read_attachment_text(att)
+        if content:
+            parts.append(f"--- File: {att.filename} ---\n{content}\n")
+    return "\n".join(parts)
+
+
+async def handle_kiragpt_message(user, prompt: str, send_func, file_content: str = ""):
     user_id = did(user.id)
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
 
-    if not prompt.strip():
-        await send_func("❌ Usage: `.kiragpt <message>` or `.kiragpt on/off`")
+    if not prompt.strip() and not file_content:
+        await send_func("❌ Usage: `.kiragpt <message>` or `.kiragpt on/off`\nYou can also upload a code/text file with your question.")
         return
 
+    full_prompt = prompt
+    if file_content:
+        full_prompt = f"{prompt}\n\nHere is the content of the uploaded file(s):\n\n{file_content}"
+
     reply_text = await generate_code_response(
-        prompt, is_creator=is_creator, history=session["history"]
+        full_prompt, is_creator=is_creator, history=session["history"]
     )
 
-    session["history"].append({"role": "user", "content": prompt})
+    session["history"].append({"role": "user", "content": full_prompt[:2000]})  # keep history reasonable
     session["history"].append({"role": "assistant", "content": reply_text})
     if len(session["history"]) > 20:
         session["history"] = session["history"][-20:]
@@ -1413,13 +1456,16 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
         await ctx.reply("✅ KiraGPT continuous chat **OFF**. History cleared.")
         return
 
+    # Read any uploaded files
+    file_content = await get_files_from_message(ctx.message)
+
     async with ctx.typing():
         async def send_func(text, file=None):
             if file:
                 await ctx.reply(text, file=file)
             else:
                 await ctx.reply(text)
-        await handle_kiragpt_message(ctx.author, prompt, send_func)
+        await handle_kiragpt_message(ctx.author, prompt, send_func, file_content=file_content)
 
 
 @bot.tree.command(name="translate", description="Translate text into another language")
@@ -1992,13 +2038,14 @@ async def on_message(message: discord.Message):
             if ref is None:
                 ref = await message.channel.fetch_message(message.reference.message_id)
             if ref and ref.author.id == bot.user.id:
+                file_content = await get_files_from_message(message)
                 async with message.channel.typing():
                     async def send_func(text, file=None):
                         if file:
                             await message.reply(text, file=file)
                         else:
                             await message.reply(text)
-                    await handle_kiragpt_message(message.author, message.content, send_func)
+                    await handle_kiragpt_message(message.author, message.content, send_func, file_content=file_content)
                 return
         except Exception:
             pass
