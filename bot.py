@@ -22,7 +22,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.3.1"
+BOT_VERSION = "1.3.0"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -1336,29 +1336,34 @@ def is_kira_creator(user) -> bool:
 
 def get_kiragpt_session(user_id: str):
     if user_id not in kiragpt_sessions:
-        kiragpt_sessions[user_id] = {"active": False, "history": []}
+        kiragpt_sessions[user_id] = {
+            "active": False,
+            "history": [],
+            "pending_file": None,      # full text of large file waiting for focus
+            "pending_filename": None,
+        }
     return kiragpt_sessions[user_id]
 
 
 SUPPORTED_FILE_EXTENSIONS = {
     ".py", ".txt", ".js", ".ts", ".jsx", ".tsx", ".json", ".md", ".html", ".css",
     ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php", ".sql",
-    ".yaml", ".yml", ".xml", ".csv", ".log", ".sh", ".bat", ".ini", ".env", ".toml"
+    ".yaml", ".yml", ".xml", ".csv", ".log", ".sh", ".bat", ".ini", ".toml"
 }
+
+MAX_FILE_CHARS = 9000  # Safe limit for Groq free tier
 
 
 async def read_attachment_text(attachment: discord.Attachment) -> str | None:
-    """Download and read text content from a Discord attachment if it's a supported file type."""
     if not attachment.filename:
         return None
     ext = "." + attachment.filename.rsplit(".", 1)[-1].lower() if "." in attachment.filename else ""
     if ext not in SUPPORTED_FILE_EXTENSIONS:
         return None
-    if attachment.size > 100_000:  # ~100 KB limit
+    if attachment.size > 200_000:
         return None
     try:
         data = await attachment.read()
-        # Try utf-8 first, then latin-1 as fallback
         try:
             return data.decode("utf-8")
         except UnicodeDecodeError:
@@ -1367,36 +1372,85 @@ async def read_attachment_text(attachment: discord.Attachment) -> str | None:
         return None
 
 
-async def get_files_from_message(message: discord.Message) -> str:
-    """Extract text content from all supported attachments in a message."""
+async def get_files_from_message(message: discord.Message) -> list[tuple[str, str]]:
+    """Returns list of (filename, content)"""
+    results = []
     if not message.attachments:
-        return ""
-    parts = []
+        return results
     for att in message.attachments:
         content = await read_attachment_text(att)
         if content:
-            parts.append(f"--- File: {att.filename} ---\n{content}\n")
-    return "\n".join(parts)
+            results.append((att.filename, content))
+    return results
 
 
-async def handle_kiragpt_message(user, prompt: str, send_func, file_content: str = ""):
+async def handle_kiragpt_message(user, prompt: str, send_func, files: list[tuple[str, str]] = None):
     user_id = did(user.id)
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
+    files = files or []
 
-    if not prompt.strip() and not file_content:
-        await send_func("❌ Usage: `.kiragpt <message>` or `.kiragpt on/off`\nYou can also upload a code/text file with your question.")
+    # If there is a pending large file and the user is giving focus instructions
+    if session.get("pending_file") and prompt.strip():
+        full_content = session["pending_file"]
+        filename = session.get("pending_filename", "file")
+        # Clear pending
+        session["pending_file"] = None
+        session["pending_filename"] = None
+
+        # Simple focus: just send the instruction + a portion or the whole if still ok
+        focus_prompt = (
+            f"The user uploaded a large file named '{filename}'. "
+            f"They want you to focus on this part: {prompt}\n\n"
+            f"Here is the file content (may be truncated if still large):\n\n"
+            f"{full_content[:MAX_FILE_CHARS]}"
+        )
+        reply_text = await generate_code_response(focus_prompt, is_creator=is_creator, history=session["history"])
+        session["history"].append({"role": "user", "content": focus_prompt[:1500]})
+        session["history"].append({"role": "assistant", "content": reply_text})
+        if len(session["history"]) > 20:
+            session["history"] = session["history"][-20:]
+        if len(reply_text) <= 1900:
+            await send_func(reply_text)
+        else:
+            import io
+            file_bytes = io.BytesIO(reply_text.encode("utf-8"))
+            discord_file = discord.File(file_bytes, filename="kiragpt_response.txt")
+            await send_func("📄 Response was long — sending as a file:", file=discord_file)
         return
 
-    full_prompt = prompt
-    if file_content:
-        full_prompt = f"{prompt}\n\nHere is the content of the uploaded file(s):\n\n{file_content}"
+    if not prompt.strip() and not files:
+        await send_func("❌ Usage: `.kiragpt <message>` or upload a file with your question.")
+        return
+
+    # Handle uploaded files
+    if files:
+        filename, content = files[0]  # take the first supported file
+        if len(content) > MAX_FILE_CHARS:
+            # File is too big → ask for focus
+            session["pending_file"] = content
+            session["pending_filename"] = filename
+            await send_func(
+                f"📄 The file **{filename}** is too large for me to read all at once "
+                f"({len(content):,} characters).\n\n"
+                f"Which part should I focus on?\n"
+                f"Examples:\n"
+                f"• the economy commands\n"
+                f"• the mines system\n"
+                f"• KiraGPT part\n"
+                f"• lines 500-900\n"
+                f"• just summarize the whole bot"
+            )
+            return
+        else:
+            # File is small enough → include it fully
+            prompt = f"{prompt}\n\n--- File: {filename} ---\n{content}"
 
     reply_text = await generate_code_response(
-        full_prompt, is_creator=is_creator, history=session["history"]
+        prompt, is_creator=is_creator, history=session["history"]
     )
 
-    session["history"].append({"role": "user", "content": full_prompt[:2000]})  # keep history reasonable
+    session["history"].append({"role": "user", "content": prompt[:1500]})
     session["history"].append({"role": "assistant", "content": reply_text})
     if len(session["history"]) > 20:
         session["history"] = session["history"][-20:]
@@ -1453,11 +1507,12 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
     if lower == "off":
         session["active"] = False
         session["history"] = []
+        session["pending_file"] = None
+        session["pending_filename"] = None
         await ctx.reply("✅ KiraGPT continuous chat **OFF**. History cleared.")
         return
 
-    # Read any uploaded files
-    file_content = await get_files_from_message(ctx.message)
+    files = await get_files_from_message(ctx.message)
 
     async with ctx.typing():
         async def send_func(text, file=None):
@@ -1465,7 +1520,7 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
                 await ctx.reply(text, file=file)
             else:
                 await ctx.reply(text)
-        await handle_kiragpt_message(ctx.author, prompt, send_func, file_content=file_content)
+        await handle_kiragpt_message(ctx.author, prompt, send_func, files=files)
 
 
 @bot.tree.command(name="translate", description="Translate text into another language")
@@ -2029,23 +2084,35 @@ async def on_message(message: discord.Message):
                 mention_author=False,
             )
 
-    # KiraGPT continuous chat
+    # KiraGPT continuous chat + pending large file replies
     user_id = did(message.author.id)
     session = kiragpt_sessions.get(user_id)
+
+    # If user is answering a "which part?" question (even without continuous mode)
+    if session and session.get("pending_file") and message.content and message.content.strip():
+        async with message.channel.typing():
+            async def send_func(text, file=None):
+                if file:
+                    await message.reply(text, file=file)
+                else:
+                    await message.reply(text)
+            await handle_kiragpt_message(message.author, message.content, send_func)
+        return
+
     if session and session.get("active") and message.reference and message.content and message.content.strip():
         try:
             ref = message.reference.resolved
             if ref is None:
                 ref = await message.channel.fetch_message(message.reference.message_id)
             if ref and ref.author.id == bot.user.id:
-                file_content = await get_files_from_message(message)
+                files = await get_files_from_message(message)
                 async with message.channel.typing():
                     async def send_func(text, file=None):
                         if file:
                             await message.reply(text, file=file)
                         else:
                             await message.reply(text)
-                    await handle_kiragpt_message(message.author, message.content, send_func, file_content=file_content)
+                    await handle_kiragpt_message(message.author, message.content, send_func, files=files)
                 return
         except Exception:
             pass
