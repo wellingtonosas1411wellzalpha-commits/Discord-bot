@@ -6,6 +6,7 @@ import math
 import gc
 import psutil
 import psycopg2
+import psycopg2.pool
 import groq
 
 import discord
@@ -22,7 +23,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.4.0"
+BOT_VERSION = "1.5.9"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -34,8 +35,8 @@ class AuthCheckedTree(app_commands.CommandTree):
         if interaction.command:
             try:
                 log_command_usage(did(interaction.user.id), interaction.command.name, "discord")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"log_command_usage failed: {e}")
         if interaction.command and interaction.command.name == "auth":
             return True
         if interaction.guild is None:
@@ -64,8 +65,8 @@ async def global_auth_check(ctx: commands.Context) -> bool:
     if ctx.command:
         try:
             log_command_usage(did(ctx.author.id), ctx.command.name, "discord")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"log_command_usage failed: {e}")
     if ctx.command and ctx.command.name == "auth":
         return True
     if ctx.guild is None:
@@ -146,8 +147,25 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
+db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL) if DATABASE_URL else None
+
+
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    """Grab a connection from the pool instead of opening a new one every call."""
+    conn = db_pool.getconn()
+    cur = conn.cursor()
+    return conn, cur
+
+
+def release_db(conn):
+    """Return a connection to the pool. Always call this instead of conn.close()."""
+    db_pool.putconn(conn)
+
+
+def init_db():
+    """One-time table creation at startup, so hot-path functions don't re-run
+    CREATE TABLE IF NOT EXISTS on every single call."""
+    conn = db_pool.getconn()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS balances (
@@ -157,8 +175,30 @@ def get_db():
             limit_amt BIGINT NOT NULL
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS account_links (
+            alias_id TEXT PRIMARY KEY,
+            canonical_id TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS command_log (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            command TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bot_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
     conn.commit()
-    return conn, cur
+    cur.close()
+    db_pool.putconn(conn)
 
 
 def migrate_db():
@@ -200,29 +240,15 @@ def resolve_uid(user_id: str) -> str:
     """If this ID has been linked to another account, return the canonical ID
     for account linking support."""
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS account_links (
-            alias_id TEXT PRIMARY KEY,
-            canonical_id TEXT NOT NULL
-        )
-    """)
-    conn.commit()
     cur.execute("SELECT canonical_id FROM account_links WHERE alias_id = %s", (user_id,))
     row = cur.fetchone()
     cur.close()
-    conn.close()
+    release_db(conn)
     return row[0] if row else user_id
 
 
 def link_accounts(alias_id: str, canonical_id: str):
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS account_links (
-            alias_id TEXT PRIMARY KEY,
-            canonical_id TEXT NOT NULL
-        )
-    """)
-    conn.commit()
     cur.execute(
         "INSERT INTO account_links (alias_id, canonical_id) VALUES (%s, %s) "
         "ON CONFLICT (alias_id) DO UPDATE SET canonical_id = EXCLUDED.canonical_id",
@@ -230,22 +256,15 @@ def link_accounts(alias_id: str, canonical_id: str):
     )
     conn.commit()
     cur.close()
-    conn.close()
+    release_db(conn)
 
 
 def unlink_account(alias_id: str):
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS account_links (
-            alias_id TEXT PRIMARY KEY,
-            canonical_id TEXT NOT NULL
-        )
-    """)
-    conn.commit()
     cur.execute("DELETE FROM account_links WHERE alias_id = %s", (alias_id,))
     conn.commit()
     cur.close()
-    conn.close()
+    release_db(conn)
 
 
 def get_balance(user_id: int):
@@ -263,7 +282,7 @@ def get_balance(user_id: int):
     else:
         wallet, bank = row
     cur.close()
-    conn.close()
+    release_db(conn)
     return {"wallet": wallet, "bank": bank}
 
 
@@ -279,25 +298,15 @@ def update_balance(user_id: int, wallet=None, bank=None):
     )
     conn.commit()
     cur.close()
-    conn.close()
+    release_db(conn)
 
 
 def get_user_count():
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS command_log (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            platform TEXT NOT NULL,
-            command TEXT NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    """)
-    conn.commit()
     cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'discord'")
     discord_count = cur.fetchone()[0]
     cur.close()
-    conn.close()
+    release_db(conn)
     return discord_count
 
 
@@ -305,37 +314,17 @@ def log_command_usage(user_id: str, command: str, platform: str):
     """Records which command was used and by whom — never the message's
     actual content, to keep people's conversations with the bot private."""
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS command_log (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            platform TEXT NOT NULL,
-            command TEXT NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    """)
-    conn.commit()
     cur.execute(
         "INSERT INTO command_log (user_id, platform, command) VALUES (%s, %s, %s)",
         (user_id, platform, command),
     )
     conn.commit()
     cur.close()
-    conn.close()
+    release_db(conn)
 
 
 def get_recent_activity(limit: int = 20):
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS command_log (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            platform TEXT NOT NULL,
-            command TEXT NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    """)
-    conn.commit()
     cur.execute(
         "SELECT user_id, platform, command, created_at FROM command_log "
         "ORDER BY created_at DESC LIMIT %s",
@@ -343,7 +332,7 @@ def get_recent_activity(limit: int = 20):
     )
     rows = cur.fetchall()
     cur.close()
-    conn.close()
+    release_db(conn)
     return rows
 
 
@@ -374,28 +363,15 @@ def build_stats_text():
 
 def get_meta(key: str):
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS bot_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    conn.commit()
     cur.execute("SELECT value FROM bot_meta WHERE key = %s", (key,))
     row = cur.fetchone()
     cur.close()
-    conn.close()
+    release_db(conn)
     return row[0] if row else None
 
 
 def set_meta(key: str, value: str):
     conn, cur = get_db()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS bot_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
     cur.execute(
         "INSERT INTO bot_meta (key, value) VALUES (%s, %s) "
         "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
@@ -403,7 +379,7 @@ def set_meta(key: str, value: str):
     )
     conn.commit()
     cur.close()
-    conn.close()
+    release_db(conn)
 
 
 def build_balance_text(user_id: int):
@@ -711,7 +687,7 @@ def get_leaderboard(limit: int = 10):
     )
     rows = cur.fetchall()
     cur.close()
-    conn.close()
+    release_db(conn)
     return rows
 
 
@@ -2070,8 +2046,8 @@ async def on_message(message: discord.Message):
                             await message.reply(text)
                     await handle_kiragpt_message(message.author, message.content, send_func)
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"KiraGPT reply handling failed: {e}")
 
     await bot.process_commands(message)
 
@@ -2080,4 +2056,7 @@ async def on_message(message: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL not found. Set it in your .env file.")
+    init_db()
     bot.run(TOKEN)
