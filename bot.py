@@ -1,6 +1,7 @@
 import os
 import random
 import asyncio
+import threading
 import time
 import math
 import gc
@@ -8,6 +9,7 @@ import psutil
 import psycopg2
 import psycopg2.pool
 import groq
+from flask import Flask
 
 import discord
 from discord import app_commands
@@ -2059,4 +2061,24 @@ if __name__ == "__main__":
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL not found. Set it in your .env file.")
     init_db()
+
+    # --- Keep-alive web server for Render's free tier ---
+    # Render's free compute is only available to web services, and free
+    # services sleep after 15 minutes with no HTTP traffic. This tiny Flask
+    # server gives Render something to see as "web traffic" when an external
+    # pinger (e.g. UptimeRobot) hits it every few minutes, so the bot never
+    # goes idle. It runs in a background thread; the Discord bot itself still
+    # runs on the main thread via bot.run() below.
+    keep_alive_app = Flask(__name__)
+
+    @keep_alive_app.route("/")
+    def keep_alive_home():
+        return "Kira bot is alive."
+
+    def run_keep_alive():
+        port = int(os.environ.get("PORT", 8080))
+        keep_alive_app.run(host="0.0.0.0", port=port)
+
+    threading.Thread(target=run_keep_alive, daemon=True).start()
+
     bot.run(TOKEN)
