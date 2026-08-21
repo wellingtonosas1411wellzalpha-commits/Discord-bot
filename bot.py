@@ -1081,7 +1081,7 @@ def do_donate(sender_id: int, receiver_id: int, amount_str: str):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.did(user.id)})")
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
