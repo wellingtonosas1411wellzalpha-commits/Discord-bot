@@ -25,7 +25,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.5.9"
+BOT_VERSION = "1.6.0"
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -142,6 +142,10 @@ auth_enabled = {}  # guild_id -> bool (default True = enabled)
 
 DEFAULT_WALLET = 50000
 DEFAULT_BANK = 50000
+XP_PER_MESSAGE_MIN = 15
+XP_PER_MESSAGE_MAX = 25
+XP_MESSAGE_COOLDOWN_SECONDS = 60
+XP_LEVEL_UP_REWARD = 1000
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -196,6 +200,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS bot_meta (
             key TEXT PRIMARY KEY,
             value TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS levels (
+            user_id TEXT PRIMARY KEY,
+            xp BIGINT NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 1,
+            last_xp_gain TIMESTAMPTZ
         )
     """)
     conn.commit()
@@ -301,6 +313,79 @@ def update_balance(user_id: int, wallet=None, bank=None):
     conn.commit()
     cur.close()
     release_db(conn)
+
+
+def xp_for_level(level: int) -> int:
+    """Total XP required to reach the given level. Simple increasing curve."""
+    return 5 * (level ** 2) + 50 * level + 100
+
+
+def get_level_data(user_id: int):
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute("SELECT xp, level, last_xp_gain FROM levels WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            "INSERT INTO levels (user_id, xp, level) VALUES (%s, 0, 1)",
+            (user_id,),
+        )
+        conn.commit()
+        xp, level, last_xp_gain = 0, 1, None
+    else:
+        xp, level, last_xp_gain = row
+    cur.close()
+    release_db(conn)
+    return {"xp": xp, "level": level, "last_xp_gain": last_xp_gain}
+
+
+def add_message_xp(user_id: int):
+    """Award XP for a message, respecting a per-user cooldown. Returns the new
+    level if the user leveled up this call, else None."""
+    user_id = resolve_uid(user_id)
+    data = get_level_data(user_id)
+    now = time.time()
+    if data["last_xp_gain"] is not None:
+        elapsed = now - data["last_xp_gain"].timestamp()
+        if elapsed < XP_MESSAGE_COOLDOWN_SECONDS:
+            return None
+
+    gained = random.randint(XP_PER_MESSAGE_MIN, XP_PER_MESSAGE_MAX)
+    new_xp = data["xp"] + gained
+    new_level = data["level"]
+    leveled_up = False
+    while new_xp >= xp_for_level(new_level):
+        new_xp -= xp_for_level(new_level)
+        new_level += 1
+        leveled_up = True
+
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE levels SET xp = %s, level = %s, last_xp_gain = NOW() WHERE user_id = %s",
+        (new_xp, new_level, user_id),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    if leveled_up:
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + XP_LEVEL_UP_REWARD)
+        return new_level
+    return None
+
+
+def get_xp_leaderboard(limit: int = 10):
+    """Returns a list of (user_id, level, xp) tuples, highest level first."""
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT user_id, level, xp FROM levels ORDER BY level DESC, xp DESC LIMIT %s",
+        (limit,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
 
 
 def get_user_count():
@@ -469,6 +554,8 @@ def build_menu_text():
         "┃ • daily — claim daily reward (24h)\n"
         "┃ • work — work for coins (1h)\n"
         "┃ • lb/top — richest users leaderboard\n"
+        "┃ • rank [user] — check level & XP\n"
+        "┃ • ranklb — level leaderboard\n"
         "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
         "┃ • fish — fish for coins (1m cd)\n"
@@ -1874,6 +1961,49 @@ async def lb_prefix(ctx: commands.Context):
     await ctx.reply(build_leaderboard_text())
 
 
+def build_rank_text(user_id: int, display_name: str) -> str:
+    data = get_level_data(user_id)
+    needed = xp_for_level(data["level"])
+    return (
+        f"📊 **{display_name}**'s Rank\n"
+        f"Level: **{data['level']}**\n"
+        f"XP: **{data['xp']:,} / {needed:,}**"
+    )
+
+
+def build_ranklb_text() -> str:
+    rows = get_xp_leaderboard()
+    if not rows:
+        return "No one has earned XP yet."
+    lines = ["🎖️ **Level Leaderboard** 🎖️\n"]
+    for i, (user_id, level, xp) in enumerate(rows, start=1):
+        lines.append(f"**{i}.** <@{user_id}> — Level {level} ({xp:,} XP)")
+    return "\n".join(lines)
+
+
+@bot.tree.command(name="rank", description="See your (or someone else's) level and XP")
+@app_commands.describe(user="The user to check (leave blank for yourself)")
+async def rank(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    await interaction.response.send_message(build_rank_text(did(target.id), target.display_name))
+
+
+@bot.command(name="rank")
+async def rank_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(build_rank_text(did(target.id), target.display_name))
+
+
+@bot.tree.command(name="ranklb", description="See the level leaderboard")
+async def ranklb(interaction: discord.Interaction):
+    await interaction.response.send_message(build_ranklb_text())
+
+
+@bot.command(name="ranklb", aliases=["levellb", "levels"])
+async def ranklb_prefix(ctx: commands.Context):
+    await ctx.reply(build_ranklb_text())
+
+
 # ---------- Mines ----------
 
 @bot.command(name="mines")
@@ -2018,6 +2148,18 @@ async def auth_prefix(ctx: commands.Context, state: str):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+
+    # XP / leveling
+    if message.guild is not None:
+        try:
+            new_level = add_message_xp(did(message.author.id))
+            if new_level is not None:
+                await message.channel.send(
+                    f"🎉 {message.author.mention} leveled up to **level {new_level}**! "
+                    f"(+{XP_LEVEL_UP_REWARD:,} coins)"
+                )
+        except Exception as e:
+            print(f"XP handling failed: {e}")
 
     # AFK handling
     if did(message.author.id) in afk_users:
