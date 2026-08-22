@@ -1181,7 +1181,7 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         messages.append({"role": "user", "content": prompt})
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=messages,
             max_tokens=4096,
         )
@@ -1202,7 +1202,7 @@ async def translate_text(language: str, text: str) -> str:
     try:
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Translate this into {language}:\n\n{text}"},
