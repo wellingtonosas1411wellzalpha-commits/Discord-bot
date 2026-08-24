@@ -26,6 +26,19 @@ def did(discord_id) -> str:
 
 BOT_START_TIME = time.time()
 BOT_VERSION = "1.6.0"
+
+# Update this alongside BOT_VERSION whenever you ship a change — shown by
+# the .updateinfo / /updateinfo command so users can see what's new.
+LATEST_UPDATE_INFO = {
+    "version": BOT_VERSION,
+    "date": "2026-08-22",
+    "changes": [
+        "Added a leveling/XP system — earn XP by chatting, level up for bonus coins",
+        "New /rank and /ranklb commands to check level progress and the level leaderboard",
+        "Fixed daily and work cooldowns resetting on every bot restart/redeploy",
+        "Migrated hosting from Railway to Render, with a new database on Supabase",
+    ],
+}
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -104,8 +117,7 @@ beg_cooldowns = {}
 dig_cooldowns = {}
 slot_cooldowns = {}
 dice_cooldowns = {}
-daily_cooldowns = {}
-work_cooldowns = {}
+
 
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
@@ -135,6 +147,40 @@ def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
     elapsed = time.time() - last
     if elapsed < seconds:
         return seconds - elapsed
+    return None
+
+
+def check_persistent_cooldown(command_name: str, user_id: int, seconds: int):
+    """Database-backed cooldown check that survives bot restarts. Use for
+    long cooldowns (daily, work) where an in-memory dict getting wiped by a
+    redeploy would let people bypass the limit. Returns remaining seconds if
+    still on cooldown, else None (and records this use as the new start)."""
+    uid = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT last_used FROM persistent_cooldowns WHERE user_id = %s AND command_name = %s",
+        (uid, command_name),
+    )
+    row = cur.fetchone()
+    now = time.time()
+    if row is not None:
+        elapsed = now - row[0].timestamp()
+        if elapsed < seconds:
+            cur.close()
+            release_db(conn)
+            return seconds - elapsed
+        cur.execute(
+            "UPDATE persistent_cooldowns SET last_used = NOW() WHERE user_id = %s AND command_name = %s",
+            (uid, command_name),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO persistent_cooldowns (user_id, command_name, last_used) VALUES (%s, %s, NOW())",
+            (uid, command_name),
+        )
+    conn.commit()
+    cur.close()
+    release_db(conn)
     return None
 
 
@@ -208,6 +254,14 @@ def init_db():
             xp BIGINT NOT NULL DEFAULT 0,
             level INTEGER NOT NULL DEFAULT 1,
             last_xp_gain TIMESTAMPTZ
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS persistent_cooldowns (
+            user_id TEXT NOT NULL,
+            command_name TEXT NOT NULL,
+            last_used TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (user_id, command_name)
         )
     """)
     conn.commit()
@@ -548,6 +602,7 @@ def build_menu_text():
         "┃ • avatar [user] — get a user's avatar\n"
         "┃ • userinfo [user] — get member info\n"
         "┃ • poll [question] — create a yes/no poll\n"
+        "┃ • updateinfo — see what changed in the latest update\n"
         "┃\n"
         "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞\n"
         "┃ • bal — check your balance\n"
@@ -555,8 +610,7 @@ def build_menu_text():
         "┃ • work — work for coins (1h)\n"
         "┃ • lb/top — richest users leaderboard\n"
         "┃ • rank [user] — check level & XP\n"
-        "┃ • ranklb — level leaderboard\n"
-        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
+        "┃ • ranklb — level leaderboard\n"        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
         "┃ • fish — fish for coins (1m cd)\n"
         "┃ • beg — beg for coins (1m cd)\n"
@@ -720,7 +774,7 @@ def do_dig(user_id: int):
 
 
 def do_daily(user_id: int):
-    remaining = check_cooldown(daily_cooldowns, user_id, DAILY_COOLDOWN_SECONDS)
+    remaining = check_persistent_cooldown("daily", user_id, DAILY_COOLDOWN_SECONDS)
     if remaining is not None:
         hours = int(remaining // 3600)
         mins = int((remaining % 3600) // 60)
@@ -749,7 +803,7 @@ WORK_JOBS = [
 
 
 def do_work(user_id: int):
-    remaining = check_cooldown(work_cooldowns, user_id, WORK_COOLDOWN_SECONDS)
+    remaining = check_persistent_cooldown("work", user_id, WORK_COOLDOWN_SECONDS)
     if remaining is not None:
         mins = int(remaining // 60)
         secs = int(remaining % 60)
@@ -1116,6 +1170,25 @@ def do_dice(user_id: int, amount_str: str):
         )
 
 
+def get_remaining_persistent_cooldown(command_name: str, user_id: int, seconds: int):
+    """Read-only check for a persistent cooldown, does not start/reset it."""
+    uid = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT last_used FROM persistent_cooldowns WHERE user_id = %s AND command_name = %s",
+        (uid, command_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    if row is None:
+        return None
+    elapsed = time.time() - row[0].timestamp()
+    if elapsed < seconds:
+        return seconds - elapsed
+    return None
+
+
 COOLDOWN_REGISTRY = [
     ("Coinflip (.cf)", cf_cooldowns, CF_COOLDOWN_SECONDS),
     ("Roulette (.roulette)", roulette_cooldowns, ROULETTE_COOLDOWN_SECONDS),
@@ -1124,8 +1197,13 @@ COOLDOWN_REGISTRY = [
     ("Dig (.dig)", dig_cooldowns, DIG_COOLDOWN_SECONDS),
     ("Slot (.slot)", slot_cooldowns, SLOT_COOLDOWN_SECONDS),
     ("Dice (.roll)", dice_cooldowns, DICE_COOLDOWN_SECONDS),
-    ("Daily (.daily)", daily_cooldowns, DAILY_COOLDOWN_SECONDS),
-    ("Work (.work)", work_cooldowns, WORK_COOLDOWN_SECONDS),
+]
+
+# Cooldowns tracked in the database rather than memory, so they survive
+# restarts. Kept separate from COOLDOWN_REGISTRY since they're read differently.
+PERSISTENT_COOLDOWN_REGISTRY = [
+    ("Daily (.daily)", "daily", DAILY_COOLDOWN_SECONDS),
+    ("Work (.work)", "work", WORK_COOLDOWN_SECONDS),
 ]
 
 
@@ -1136,6 +1214,17 @@ def build_cooldowns_text(user_id: int):
         if remaining is not None:
             lines.append(f"┃ ⏳ {label}: {int(remaining) + 1}s left")
 
+    for label, command_name, seconds in PERSISTENT_COOLDOWN_REGISTRY:
+        remaining = get_remaining_persistent_cooldown(command_name, user_id, seconds)
+        if remaining is not None:
+            hours = int(remaining // 3600)
+            mins = int((remaining % 3600) // 60)
+            secs = int(remaining % 60)
+            if hours:
+                lines.append(f"┃ ⏳ {label}: {hours}h {mins}m left")
+            else:
+                lines.append(f"┃ ⏳ {label}: {mins}m {secs}s left")
+
     if not lines:
         return "✅ You have no active cooldowns."
 
@@ -1144,6 +1233,7 @@ def build_cooldowns_text(user_id: int):
         + "\n".join(lines)
         + "\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
+
 
 
 def do_donate(sender_id: int, receiver_id: int, amount_str: str):
@@ -1675,6 +1765,32 @@ async def menu(interaction: discord.Interaction):
 @bot.command(name="menu")
 async def menu_prefix(ctx: commands.Context):
     await ctx.reply(build_menu_text())
+
+
+def build_updateinfo_text() -> str:
+    info = LATEST_UPDATE_INFO
+    lines = [
+        "╭━━━〔 🆕 ʟᴀᴛᴇsᴛ ᴜᴘᴅᴀᴛᴇ 〕━━━⬣",
+        "┃",
+        f"┃ Version: **{info['version']}**",
+        f"┃ Date: {info['date']}",
+        "┃",
+        "┃ What's new:",
+    ]
+    for change in info["changes"]:
+        lines.append(f"┃ • {change}")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+@bot.tree.command(name="updateinfo", description="See what changed in the latest update")
+async def updateinfo(interaction: discord.Interaction):
+    await interaction.response.send_message(build_updateinfo_text())
+
+
+@bot.command(name="updateinfo", aliases=["changelog"])
+async def updateinfo_prefix(ctx: commands.Context):
+    await ctx.reply(build_updateinfo_text())
 
 
 # ---------- Gambling ----------
