@@ -25,7 +25,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.6.0"
+BOT_VERSION = "1.7.0"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
@@ -33,10 +33,11 @@ LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
     "date": "2026-08-22",
     "changes": [
-        "Added a leveling/XP system — earn XP by chatting, level up for bonus coins",
-        "New /rank and /ranklb commands to check level progress and the level leaderboard",
-        "Fixed daily and work cooldowns resetting on every bot restart/redeploy",
-        "Migrated hosting from Railway to Render, with a new database on Supabase",
+        "Added a shop system — admins can add items with .shopadd, users buy with .buy",
+        "Added .inventory to see items you've bought",
+        "Added level role rewards — configure with .setlevelrole",
+        "Added .blackjack — full interactive blackjack (hit/stand)",
+        "Added .rob — try to steal coins from another user (1h cooldown)",
     ],
 }
 psutil.cpu_percent(interval=None)  # prime the reading
@@ -108,6 +109,7 @@ afk_users = {}  # user_id -> reason
 kiragpt_sessions = {}  # user_id -> {"active": bool, "history": list}
 
 active_mines_games = {}  # user_id -> game state
+active_blackjack_games = {}  # user_id -> game state
 MINES_HOUSE_EDGE = 0.97
 
 cf_cooldowns = {}  # user_id -> last used timestamp
@@ -192,6 +194,10 @@ XP_PER_MESSAGE_MIN = 15
 XP_PER_MESSAGE_MAX = 25
 XP_MESSAGE_COOLDOWN_SECONDS = 60
 XP_LEVEL_UP_REWARD = 1000
+ROB_COOLDOWN_SECONDS = 3600
+ROB_SUCCESS_CHANCE = 0.45
+ROB_MAX_STEAL_PERCENT = 0.25
+ROB_FAIL_PENALTY_PERCENT = 0.10
 DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -262,6 +268,32 @@ def init_db():
             command_name TEXT NOT NULL,
             last_used TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (user_id, command_name)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS shop_items (
+            item_id SERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            price BIGINT NOT NULL,
+            description TEXT,
+            role_id TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS inventory (
+            user_id TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (user_id, item_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS level_roles (
+            guild_id TEXT NOT NULL,
+            level INTEGER NOT NULL,
+            role_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, level)
         )
     """)
     conn.commit()
@@ -393,7 +425,55 @@ def get_level_data(user_id: int):
     return {"xp": xp, "level": level, "last_xp_gain": last_xp_gain}
 
 
-def add_message_xp(user_id: int):
+def get_level_role(guild_id: int, level: int):
+    """Returns the role_id configured for this level in this guild, or None."""
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT role_id FROM level_roles WHERE guild_id = %s AND level = %s",
+        (str(guild_id), level),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return int(row[0]) if row else None
+
+
+def set_level_role(guild_id: int, level: int, role_id: int):
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO level_roles (guild_id, level, role_id) VALUES (%s, %s, %s) "
+        "ON CONFLICT (guild_id, level) DO UPDATE SET role_id = EXCLUDED.role_id",
+        (str(guild_id), level, str(role_id)),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def remove_level_role(guild_id: int, level: int):
+    conn, cur = get_db()
+    cur.execute(
+        "DELETE FROM level_roles WHERE guild_id = %s AND level = %s",
+        (str(guild_id), level),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def list_level_roles(guild_id: int):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT level, role_id FROM level_roles WHERE guild_id = %s ORDER BY level",
+        (str(guild_id),),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def add_message_xp(user_id: int, guild_id: int = None):
     """Award XP for a message, respecting a per-user cooldown. Returns the new
     level if the user leveled up this call, else None."""
     user_id = resolve_uid(user_id)
@@ -610,11 +690,18 @@ def build_menu_text():
         "┃ • work — work for coins (1h)\n"
         "┃ • lb/top — richest users leaderboard\n"
         "┃ • rank [user] — check level & XP\n"
-        "┃ • ranklb — level leaderboard\n"        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
+        "┃ • ranklb — level leaderboard\n"
+        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
         "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
         "┃ • fish — fish for coins (1m cd)\n"
         "┃ • beg — beg for coins (1m cd)\n"
         "┃ • dig — dig for coins (1m cd)\n"
+        "┃ • rob @user — try to steal coins (1h cd)\n"
+        "┃\n"
+        "┃ 𝕾𝖍𝖔𝖕 & 𝕴𝖓𝖛𝖊𝖓𝖙𝖔𝖗𝖞\n"
+        "┃ • shop — view this server's shop\n"
+        "┃ • buy <item id> — buy an item\n"
+        "┃ • inventory/inv [user] — see items owned\n"
         "┃\n"
         "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
         "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
@@ -622,6 +709,8 @@ def build_menu_text():
         "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
         "┃ • mines <bet> [mines] — start a mines game\n"
         "┃   then .mines <1-25> to dig, .mines cashout to win\n"
+        "┃ • blackjack/bj <bet> — start blackjack\n"
+        "┃   then .blackjack hit or .blackjack stand\n"
         "┃ • slot [amount|all] — slot machine (1m cd)\n"
         "┃\n"
         "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
@@ -637,6 +726,10 @@ def build_menu_text():
         "┃ • stats — how many people use the bot\n"
         "┃ • activity — recent command usage log\n"
         "┃ • clearcache — free up memory\n"
+        "┃ • shopadd <name> <price> [description] — add shop item\n"
+        "┃ • shopremove <item id> — remove shop item\n"
+        "┃ • setlevelrole <level> @role — set a level role reward\n"
+        "┃ • levelroles — list configured level role rewards\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
@@ -1054,6 +1147,147 @@ def cashout_mines(user_id: int):
     )
 
 
+# ---------- Blackjack ----------
+
+BLACKJACK_RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+BLACKJACK_SUITS = ["♠", "♥", "♦", "♣"]
+
+
+def new_blackjack_deck():
+    deck = [(rank, suit) for rank in BLACKJACK_RANKS for suit in BLACKJACK_SUITS]
+    random.shuffle(deck)
+    return deck
+
+
+def card_value(rank: str) -> int:
+    if rank in ("J", "Q", "K"):
+        return 10
+    if rank == "A":
+        return 11
+    return int(rank)
+
+
+def hand_total(hand):
+    total = sum(card_value(rank) for rank, _ in hand)
+    aces = sum(1 for rank, _ in hand if rank == "A")
+    while total > 21 and aces > 0:
+        total -= 10
+        aces -= 1
+    return total
+
+
+def format_hand(hand):
+    return " ".join(f"{rank}{suit}" for rank, suit in hand)
+
+
+def build_blackjack_text(game, reveal_dealer=False, result_line=None):
+    player_total = hand_total(game["player"])
+    lines = ["🃏 *BLACKJACK* 🃏", "──────────────────"]
+    if reveal_dealer:
+        dealer_total = hand_total(game["dealer"])
+        lines.append(f"Dealer: {format_hand(game['dealer'])} ({dealer_total})")
+    else:
+        lines.append(f"Dealer: {game['dealer'][0][0]}{game['dealer'][0][1]} 🂠")
+    lines.append(f"You: {format_hand(game['player'])} ({player_total})")
+    lines.append("──────────────────")
+    lines.append(f"Bet: ${game['bet']:,}")
+    if result_line:
+        lines.append("")
+        lines.append(result_line)
+    else:
+        lines.append("")
+        lines.append("👉 `.blackjack hit` to draw, `.blackjack stand` to hold.")
+    return "\n".join(lines)
+
+
+def start_blackjack(user_id: int, bet_str: str):
+    if user_id in active_blackjack_games:
+        return "❌ You already have a blackjack game running. Finish it first."
+
+    bal = get_balance(user_id)
+    try:
+        bet = parse_amount(bet_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid bet amount."
+    if bet <= 0:
+        return "❌ Enter a bet greater than $0."
+    if bet > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    update_balance(user_id, wallet=bal["wallet"] - bet)
+
+    deck = new_blackjack_deck()
+    player = [deck.pop(), deck.pop()]
+    dealer = [deck.pop(), deck.pop()]
+    game = {"deck": deck, "player": player, "dealer": dealer, "bet": bet}
+
+    if hand_total(player) == 21:
+        return resolve_blackjack(user_id, game, natural=True)
+
+    active_blackjack_games[user_id] = game
+    return build_blackjack_text(game)
+
+
+def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
+    bet = game["bet"]
+    if user_id in active_blackjack_games:
+        del active_blackjack_games[user_id]
+
+    if player_bust:
+        return build_blackjack_text(
+            game, reveal_dealer=True,
+            result_line=f"💥 Bust! You lost **${bet:,}**.",
+        )
+
+    if natural:
+        payout = int(bet * 2.5)
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + payout)
+        return build_blackjack_text(
+            game, reveal_dealer=True,
+            result_line=f"🎉 Blackjack! You won **${payout:,}**!",
+        )
+
+    # Dealer draws until 17+
+    while hand_total(game["dealer"]) < 17:
+        game["dealer"].append(game["deck"].pop())
+
+    player_total = hand_total(game["player"])
+    dealer_total = hand_total(game["dealer"])
+
+    if dealer_total > 21 or player_total > dealer_total:
+        payout = bet * 2
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + payout)
+        result_line = f"🎉 You won **${payout:,}**!"
+    elif player_total == dealer_total:
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + bet)
+        result_line = f"🤝 Push! Your **${bet:,}** bet was returned."
+    else:
+        result_line = f"😔 You lost **${bet:,}**."
+
+    return build_blackjack_text(game, reveal_dealer=True, result_line=result_line)
+
+
+def hit_blackjack(user_id: int):
+    game = active_blackjack_games.get(user_id)
+    if not game:
+        return "❌ No active blackjack game. Start one with `.blackjack <bet>`."
+
+    game["player"].append(game["deck"].pop())
+    if hand_total(game["player"]) > 21:
+        return resolve_blackjack(user_id, game, player_bust=True)
+    return build_blackjack_text(game)
+
+
+def stand_blackjack(user_id: int):
+    game = active_blackjack_games.get(user_id)
+    if not game:
+        return "❌ No active blackjack game. Start one with `.blackjack <bet>`."
+    return resolve_blackjack(user_id, game)
+
+
 SLOT_SYMBOLS = ["🍒", "🍋", "💎", "🔔", "7️⃣"]
 SLOT_JACKPOT_MULTIPLIER = 10
 SLOT_WIN_MULTIPLIER = 2
@@ -1204,6 +1438,7 @@ COOLDOWN_REGISTRY = [
 PERSISTENT_COOLDOWN_REGISTRY = [
     ("Daily (.daily)", "daily", DAILY_COOLDOWN_SECONDS),
     ("Work (.work)", "work", WORK_COOLDOWN_SECONDS),
+    ("Rob (.rob)", "rob", ROB_COOLDOWN_SECONDS),
 ]
 
 
@@ -1254,6 +1489,163 @@ def do_donate(sender_id: int, receiver_id: int, amount_str: str):
     receiver_bal = get_balance(receiver_id)
     update_balance(receiver_id, wallet=receiver_bal["wallet"] + amount)
     return amount, None
+
+
+# ---------- Shop / Inventory ----------
+
+def add_shop_item(guild_id: int, name: str, price: int, description: str = "", role_id: int = None):
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO shop_items (guild_id, name, price, description, role_id) "
+        "VALUES (%s, %s, %s, %s, %s) RETURNING item_id",
+        (str(guild_id), name, price, description, str(role_id) if role_id else None),
+    )
+    item_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return item_id
+
+
+def remove_shop_item(guild_id: int, item_id: int):
+    conn, cur = get_db()
+    cur.execute(
+        "DELETE FROM shop_items WHERE guild_id = %s AND item_id = %s",
+        (str(guild_id), item_id),
+    )
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return deleted
+
+
+def get_shop_items(guild_id: int):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT item_id, name, price, description, role_id FROM shop_items "
+        "WHERE guild_id = %s ORDER BY price",
+        (str(guild_id),),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def get_shop_item(guild_id: int, item_id: int):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT item_id, name, price, description, role_id FROM shop_items "
+        "WHERE guild_id = %s AND item_id = %s",
+        (str(guild_id), item_id),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row
+
+
+def buy_shop_item(user_id: int, guild_id: int, item_id: int):
+    """Returns (success: bool, message: str, role_id_or_None)."""
+    item = get_shop_item(guild_id, item_id)
+    if item is None:
+        return False, "❌ That item doesn't exist in this server's shop.", None
+    _, name, price, description, role_id = item
+
+    user_id = resolve_uid(user_id)
+    bal = get_balance(user_id)
+    if bal["wallet"] < price:
+        return False, f"❌ You need **{price:,}** coins but only have **{bal['wallet']:,}** in your wallet.", None
+
+    update_balance(user_id, wallet=bal["wallet"] - price)
+
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO inventory (user_id, item_id, quantity) VALUES (%s, %s, 1) "
+        "ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = inventory.quantity + 1",
+        (user_id, item_id),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    return True, f"✅ You bought **{name}** for **{price:,}** coins!", int(role_id) if role_id else None
+
+
+def get_inventory(user_id: int):
+    """Returns a list of (name, quantity, description, role_id) for a user's items."""
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT si.name, inv.quantity, si.description, si.role_id "
+        "FROM inventory inv JOIN shop_items si ON inv.item_id = si.item_id "
+        "WHERE inv.user_id = %s ORDER BY si.name",
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def build_shop_text(guild_id: int) -> str:
+    items = get_shop_items(guild_id)
+    if not items:
+        return "🛒 The shop is empty. Ask an admin to add items with `.shopadd`."
+    lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃"]
+    for item_id, name, price, description, role_id in items:
+        desc_part = f" — {description}" if description else ""
+        lines.append(f"┃ **#{item_id}** {name} — {price:,} coins{desc_part}")
+    lines.append("┃")
+    lines.append("┃ Buy with `.buy <item id>`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+def build_inventory_text(display_name: str, user_id: int) -> str:
+    items = get_inventory(user_id)
+    if not items:
+        return f"🎒 **{display_name}**'s inventory is empty."
+    lines = [f"╭━━━〔 🎒 {display_name}'s ɪɴᴠᴇɴᴛᴏʀʏ 〕━━━⬣", "┃"]
+    for name, quantity, description, role_id in items:
+        lines.append(f"┃ {name} x{quantity}")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+# ---------- Rob ----------
+
+def do_rob(robber_id: int, victim_id: int):
+    if robber_id == victim_id:
+        return "❌ You can't rob yourself."
+
+    remaining = check_persistent_cooldown("rob", robber_id, ROB_COOLDOWN_SECONDS)
+    if remaining is not None:
+        mins = int(remaining // 60)
+        secs = int(remaining % 60)
+        return f"⏳ You're laying low. Try robbing again in **{mins}m {secs}s**."
+
+    robber_id = resolve_uid(robber_id)
+    victim_id = resolve_uid(victim_id)
+    victim_bal = get_balance(victim_id)
+    robber_bal = get_balance(robber_id)
+
+    if victim_bal["wallet"] < 100:
+        return "❌ That person doesn't have enough in their wallet to be worth robbing."
+
+    if random.random() < ROB_SUCCESS_CHANCE:
+        stolen = int(victim_bal["wallet"] * random.uniform(0.05, ROB_MAX_STEAL_PERCENT))
+        stolen = max(stolen, 1)
+        update_balance(victim_id, wallet=victim_bal["wallet"] - stolen)
+        update_balance(robber_id, wallet=robber_bal["wallet"] + stolen)
+        return f"💰 You successfully robbed **{stolen:,}** coins!"
+    else:
+        penalty = int(robber_bal["wallet"] * ROB_FAIL_PENALTY_PERCENT)
+        penalty = min(penalty, robber_bal["wallet"])
+        update_balance(robber_id, wallet=robber_bal["wallet"] - penalty)
+        return f"🚨 You got caught! You paid a fine of **{penalty:,}** coins."
+
 
 
 @bot.event
@@ -2159,6 +2551,181 @@ async def minescashout(interaction: discord.Interaction):
     await interaction.response.send_message(cashout_mines(did(interaction.user.id)))
 
 
+@bot.command(name="blackjack", aliases=["bj"])
+async def blackjack_prefix(ctx: commands.Context, action: str = None):
+    user_id = did(ctx.author.id)
+    if action is None:
+        await ctx.reply("❌ Usage: `.blackjack <bet>` to start, `.blackjack hit`, or `.blackjack stand`.")
+        return
+    if action.lower() == "hit":
+        await ctx.reply(hit_blackjack(user_id))
+        return
+    if action.lower() == "stand":
+        await ctx.reply(stand_blackjack(user_id))
+        return
+    await ctx.reply(start_blackjack(user_id, action))
+
+
+@bot.tree.command(name="blackjack", description="Start a blackjack game")
+@app_commands.describe(bet="Amount to bet, or 'all'")
+async def blackjack_start(interaction: discord.Interaction, bet: str):
+    await interaction.response.send_message(start_blackjack(did(interaction.user.id), bet))
+
+
+@bot.tree.command(name="blackjackhit", description="Draw a card in your blackjack game")
+async def blackjackhit(interaction: discord.Interaction):
+    await interaction.response.send_message(hit_blackjack(did(interaction.user.id)))
+
+
+@bot.tree.command(name="blackjackstand", description="Stand in your blackjack game")
+async def blackjackstand(interaction: discord.Interaction):
+    await interaction.response.send_message(stand_blackjack(did(interaction.user.id)))
+
+
+@bot.tree.command(name="rob", description="Attempt to rob another user")
+@app_commands.describe(user="The user to rob")
+async def rob(interaction: discord.Interaction, user: discord.User):
+    await interaction.response.send_message(do_rob(did(interaction.user.id), did(user.id)))
+
+
+@bot.command(name="rob")
+async def rob_prefix(ctx: commands.Context, user: discord.User):
+    await ctx.reply(do_rob(did(ctx.author.id), did(user.id)))
+
+
+@bot.tree.command(name="shop", description="View this server's shop")
+async def shop(interaction: discord.Interaction):
+    await interaction.response.send_message(build_shop_text(interaction.guild.id))
+
+
+@bot.command(name="shop")
+async def shop_prefix(ctx: commands.Context):
+    await ctx.reply(build_shop_text(ctx.guild.id))
+
+
+@bot.tree.command(name="buy", description="Buy an item from the shop")
+@app_commands.describe(item_id="The item's ID number, shown in .shop")
+async def buy(interaction: discord.Interaction, item_id: int):
+    success, message, role_id = buy_shop_item(did(interaction.user.id), interaction.guild.id, item_id)
+    if success and role_id is not None and isinstance(interaction.user, discord.Member):
+        role = interaction.guild.get_role(role_id)
+        if role is not None:
+            try:
+                await interaction.user.add_roles(role, reason="Shop purchase")
+                message += f"\n🏅 The **{role.name}** role has been added to you."
+            except discord.Forbidden:
+                message += "\n⚠️ Couldn't assign the role — check my role permissions."
+    await interaction.response.send_message(message)
+
+
+@bot.command(name="buy")
+async def buy_prefix(ctx: commands.Context, item_id: int):
+    success, message, role_id = buy_shop_item(did(ctx.author.id), ctx.guild.id, item_id)
+    if success and role_id is not None and isinstance(ctx.author, discord.Member):
+        role = ctx.guild.get_role(role_id)
+        if role is not None:
+            try:
+                await ctx.author.add_roles(role, reason="Shop purchase")
+                message += f"\n🏅 The **{role.name}** role has been added to you."
+            except discord.Forbidden:
+                message += "\n⚠️ Couldn't assign the role — check my role permissions."
+    await ctx.reply(message)
+
+
+@bot.tree.command(name="inventory", description="See your (or someone else's) items")
+@app_commands.describe(user="The user to check (leave blank for yourself)")
+async def inventory(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    await interaction.response.send_message(build_inventory_text(target.display_name, did(target.id)))
+
+
+@bot.command(name="inventory", aliases=["inv"])
+async def inventory_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(build_inventory_text(target.display_name, did(target.id)))
+
+
+@bot.tree.command(name="shopadd", description="[Admin] Add an item to the shop")
+@app_commands.describe(name="Item name", price="Price in coins", description="Short description", role="Role to grant on purchase (optional)")
+async def shopadd(interaction: discord.Interaction, name: str, price: int, description: str = "", role: discord.Role = None):
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Only server administrators can do that.")
+        return
+    item_id = add_shop_item(interaction.guild.id, name, price, description, role.id if role else None)
+    await interaction.response.send_message(f"✅ Added **{name}** to the shop as item **#{item_id}**.")
+
+
+@bot.command(name="shopadd")
+async def shopadd_prefix(ctx: commands.Context, name: str, price: int, *, description: str = ""):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply("❌ Only server administrators can do that.")
+        return
+    item_id = add_shop_item(ctx.guild.id, name, price, description)
+    await ctx.reply(f"✅ Added **{name}** to the shop as item **#{item_id}**.")
+
+
+@bot.tree.command(name="shopremove", description="[Admin] Remove an item from the shop")
+@app_commands.describe(item_id="The item's ID number, shown in .shop")
+async def shopremove(interaction: discord.Interaction, item_id: int):
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Only server administrators can do that.")
+        return
+    removed = remove_shop_item(interaction.guild.id, item_id)
+    await interaction.response.send_message("✅ Item removed." if removed else "❌ No item with that ID.")
+
+
+@bot.command(name="shopremove")
+async def shopremove_prefix(ctx: commands.Context, item_id: int):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply("❌ Only server administrators can do that.")
+        return
+    removed = remove_shop_item(ctx.guild.id, item_id)
+    await ctx.reply("✅ Item removed." if removed else "❌ No item with that ID.")
+
+
+@bot.tree.command(name="setlevelrole", description="[Admin] Set a role reward for reaching a level")
+@app_commands.describe(level="The level to reward", role="The role to grant")
+async def setlevelrole(interaction: discord.Interaction, level: int, role: discord.Role):
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Only server administrators can do that.")
+        return
+    set_level_role(interaction.guild.id, level, role.id)
+    await interaction.response.send_message(f"✅ Users will now get **{role.name}** at level **{level}**.")
+
+
+@bot.command(name="setlevelrole")
+async def setlevelrole_prefix(ctx: commands.Context, level: int, role: discord.Role):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply("❌ Only server administrators can do that.")
+        return
+    set_level_role(ctx.guild.id, level, role.id)
+    await ctx.reply(f"✅ Users will now get **{role.name}** at level **{level}**.")
+
+
+@bot.tree.command(name="levelroles", description="See all configured level role rewards")
+async def levelroles(interaction: discord.Interaction):
+    rows = list_level_roles(interaction.guild.id)
+    if not rows:
+        await interaction.response.send_message("No level roles configured yet.")
+        return
+    lines = ["🏅 **Level Role Rewards**\n"]
+    for level, role_id in rows:
+        lines.append(f"Level {level} → <@&{role_id}>")
+    await interaction.response.send_message("\n".join(lines))
+
+
+@bot.command(name="levelroles")
+async def levelroles_prefix(ctx: commands.Context):
+    rows = list_level_roles(ctx.guild.id)
+    if not rows:
+        await ctx.reply("No level roles configured yet.")
+        return
+    lines = ["🏅 **Level Role Rewards**\n"]
+    for level, role_id in rows:
+        lines.append(f"Level {level} → <@&{role_id}>")
+    await ctx.reply("\n".join(lines))
+
+
 @bot.tree.command(name="slot", description="Play the slot machine")
 @app_commands.describe(amount="Amount to bet, or 'all'")
 async def slot(interaction: discord.Interaction, amount: str):
@@ -2268,12 +2835,22 @@ async def on_message(message: discord.Message):
     # XP / leveling
     if message.guild is not None:
         try:
-            new_level = add_message_xp(did(message.author.id))
+            new_level = add_message_xp(did(message.author.id), message.guild.id)
             if new_level is not None:
-                await message.channel.send(
+                level_up_msg = (
                     f"🎉 {message.author.mention} leveled up to **level {new_level}**! "
                     f"(+{XP_LEVEL_UP_REWARD:,} coins)"
                 )
+                role_id = get_level_role(message.guild.id, new_level)
+                if role_id is not None:
+                    role = message.guild.get_role(role_id)
+                    if role is not None and isinstance(message.author, discord.Member):
+                        try:
+                            await message.author.add_roles(role, reason=f"Reached level {new_level}")
+                            level_up_msg += f"\n🏅 You've earned the **{role.name}** role!"
+                        except discord.Forbidden:
+                            pass
+                await message.channel.send(level_up_msg)
         except Exception as e:
             print(f"XP handling failed: {e}")
 
