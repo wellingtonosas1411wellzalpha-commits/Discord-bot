@@ -72,6 +72,7 @@ bot = commands.Bot(
     intents=intents,
     tree_cls=AuthCheckedTree,
     allowed_mentions=discord.AllowedMentions(replied_user=False),
+    help_command=None,
 )
 
 
