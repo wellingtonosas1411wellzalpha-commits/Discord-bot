@@ -25,19 +25,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.7.0"
+BOT_VERSION = "1.8.0"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
 LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
-    "date": "2026-08-22",
+    "date": "2026-08-27",
     "changes": [
-        "Added a shop and inventory system — buy with .buy, see items with .inventory",
-        "Added .inventory to see items you've bought",
-        "Added level role rewards — configure with .setlevelrole",
-        "Added .blackjack — full interactive blackjack (hit/stand)",
-        "Added .rob — try to steal coins from another user (1h cooldown)",
+        "Global shop items: Vx, V9, Lucky Potion, Gun, Fishing Rod, Shovel",
+        "Fish / dig / rob now require the matching tool",
+        "Vx and V9 halve cooldowns when used; Lucky Potion stacks win rate",
+        ".menu is now a short list — use .help <command> for details",
     ],
 }
 psutil.cpu_percent(interval=None)  # prime the reading
@@ -132,7 +131,16 @@ DAILY_COOLDOWN_SECONDS = 86400
 WORK_COOLDOWN_SECONDS = 3600
 
 
+def apply_cd_boost(user_id, seconds: int) -> int:
+    """Halve cooldown if Vx / V9 boost is active."""
+    until = get_cd_boost_until(user_id)
+    if until and time.time() < until:
+        return max(1, seconds // 2)
+    return seconds
+
+
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
+    seconds = apply_cd_boost(user_id, seconds)
     now = time.time()
     last = cooldowns.get(user_id)
     if last is not None and (now - last) < seconds:
@@ -157,6 +165,7 @@ def check_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     long cooldowns (daily, work) where an in-memory dict getting wiped by a
     redeploy would let people bypass the limit. Returns remaining seconds if
     still on cooldown, else None (and records this use as the new start)."""
+    seconds = apply_cd_boost(user_id, seconds)
     uid = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
@@ -294,6 +303,21 @@ def init_db():
             level INTEGER NOT NULL,
             role_id TEXT NOT NULL,
             PRIMARY KEY (guild_id, level)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS global_inventory (
+            user_id TEXT NOT NULL,
+            item_key TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, item_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_effects (
+            user_id TEXT PRIMARY KEY,
+            lucky_stacks INTEGER NOT NULL DEFAULT 0,
+            cd_boost_until DOUBLE PRECISION
         )
     """)
     conn.commit()
@@ -664,74 +688,78 @@ def do_deposit(user_id: int, amount_str: str):
     )
 
 
+COMMAND_HELP = {
+    "ping": "Check the bot's latency.\nUsage: `.ping`",
+    "8ball": "Ask the magic 8-ball a question.\nUsage: `.8ball <question>`",
+    "joke": "Get a random joke.\nUsage: `.joke`",
+    "kiragpt": "Talk to KiraGPT.\n`.kiragpt on/off` continuous chat\n`.kiragpt wild on` / `ai on` / `normal on`\n`.kiragpt <message>`",
+    "translate": "Translate text.\nUsage: `.translate <language> <text>`",
+    "trt": "Reply to a message to translate it.\nUsage: `.trt <language>`",
+    "avatar": "Get a user's avatar.\nUsage: `.avatar [user]`",
+    "userinfo": "Get member info.\nUsage: `.userinfo [user]`",
+    "poll": "Create a yes/no poll.\nUsage: `.poll <question>`",
+    "updateinfo": "See the latest bot update notes.\nUsage: `.updateinfo`",
+    "bal": "Check wallet and bank balance.\nUsage: `.bal`",
+    "daily": "Claim daily coins (24h cooldown).\nUsage: `.daily`",
+    "work": "Work a job for coins (1h cooldown).\nUsage: `.work`",
+    "lb": "Show the richest users.\nUsage: `.lb` or `.top`",
+    "rank": "Check level and XP.\nUsage: `.rank [user]`",
+    "ranklb": "Level leaderboard.\nUsage: `.ranklb`",
+    "withdraw": "Move coins from bank to wallet.\nUsage: `.withdraw <amount|all>`",
+    "deposit": "Move coins from wallet to bank.\nUsage: `.deposit <amount|all>`",
+    "fish": "Fish for coins. Requires a Fishing Rod (`.buy fishing rod`).\nUsage: `.fish`",
+    "beg": "Beg for coins (1m cooldown).\nUsage: `.beg`",
+    "dig": "Dig for coins. Requires a Shovel (`.buy shovel`).\nUsage: `.dig`",
+    "rob": "Try to steal coins. Requires a Gun (`.buy gun`).\nUsage: `.rob @user`",
+    "shop": "View global and server shop items.\nUsage: `.shop`",
+    "buy": "Buy an item.\nUsage: `.buy vx` / `.buy gun` / `.buy <id>`",
+    "use": "Use a consumable item.\nUsage: `.use vx` / `.use v9` / `.use lucky`",
+    "inventory": "See owned items.\nUsage: `.inventory [user]`",
+    "cf": "Bet on a coinflip.\nUsage: `.cf heads/tails <amount|all>`",
+    "roll": "Dice roll. 4-6 wins.\nUsage: `.roll <amount|all>`",
+    "roulette": "Bet on red/black/green.\nUsage: `.roulette <color> <amount|all>`",
+    "mines": "Mines game.\nUsage: `.mines <bet> [mines]` then `.mines <1-25>` or `.mines cashout`",
+    "blackjack": "Blackjack.\nUsage: `.blackjack <bet>` then `.blackjack hit` or `.blackjack stand`",
+    "slot": "Slot machine.\nUsage: `.slot <amount|all>`",
+    "afk": "Set yourself AFK.\nUsage: `.afk [reason]`",
+    "cds": "Show your cooldowns.\nUsage: `.cds`",
+    "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
+    "help": "Show info for one command.\nUsage: `.help <command>`",
+    "menu": "Show the short command list.\nUsage: `.menu`",
+}
+
+
 def build_menu_text():
     return (
         "╭━━━〔 𝕮𝖔𝖒𝖒𝖆𝖓𝖉 𝕸𝖊𝖓𝖚 〕━━━⬣\n"
+        "┃ Type `.help <command>` for details\n"
         "┃\n"
-        "┃ 𝕱𝖚𝖓\n"
-        "┃ • ping — check bot latency\n"
-        "┃ • 8ball [question] — ask the magic 8-ball\n"
-        "┃ • joke — get a random joke\n"
-        "┃ • kiragpt on/off — toggle continuous chat\n"
-        "┃ • kiragpt wild on / ai on / normal on — change personality\n"
-        "┃ • kiragpt <prompt> — talk to KiraGPT (reply to continue)\n"
-        "┃ • translate <language> <text> — translate text\n"
-        "┃ • trt <language> — reply to a message to translate it\n"
-        "┃\n"
-        "┃ 𝕴𝖓𝖋𝖔\n"
-        "┃ • avatar [user] — get a user's avatar\n"
-        "┃ • userinfo [user] — get member info\n"
-        "┃ • poll [question] — create a yes/no poll\n"
-        "┃ • updateinfo — see what changed in the latest update\n"
-        "┃\n"
-        "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞\n"
-        "┃ • bal — check your balance\n"
-        "┃ • daily — claim daily reward (24h)\n"
-        "┃ • work — work for coins (1h)\n"
-        "┃ • lb/top — richest users leaderboard\n"
-        "┃ • rank [user] — check level & XP\n"
-        "┃ • ranklb — level leaderboard\n"
-        "┃ • withdraw/wd [amount|all] — bank ➜ wallet\n"
-        "┃ • deposit/dep [amount|all] — wallet ➜ bank\n"
-        "┃ • fish — fish for coins (1m cd)\n"
-        "┃ • beg — beg for coins (1m cd)\n"
-        "┃ • dig — dig for coins (1m cd)\n"
-        "┃ • rob @user — try to steal coins (1h cd)\n"
-        "┃\n"
-        "┃ 𝕾𝖍𝖔𝖕 & 𝕴𝖓𝖛𝖊𝖓𝖙𝖔𝖗𝖞\n"
-        "┃ • shop — view this server's shop\n"
-        "┃ • buy <item id> — buy an item\n"
-        "┃ • inventory/inv [user] — see items owned\n"
-        "┃\n"
-        "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌\n"
-        "┃ • cf/coinflip [heads/tails] [amount|all] (1m cd)\n"
-        "┃ • roll [amount|all] — dice roll, 4-6 wins (1m cd)\n"
-        "┃ • roulette [red/black/green] [amount|all] (3m cd)\n"
-        "┃ • mines <bet> [mines] — start a mines game\n"
-        "┃   then .mines <1-25> to dig, .mines cashout to win\n"
-        "┃ • blackjack/bj <bet> — start blackjack\n"
-        "┃   then .blackjack hit or .blackjack stand\n"
-        "┃ • slot [amount|all] — slot machine (1m cd)\n"
-        "┃\n"
-        "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞\n"
-        "┃ • afk [reason] — set yourself as afk\n"
-        "┃ • cds/cooldowns — show your active cooldowns\n"
-        "┃ • donate <amount|all> @user — send money to someone\n"
-        "┃ • link <number/Discord ID> — share balance across platforms\n"
-        "┃ • unlink <number/ID> — remove a linked account\n"
-        "┃\n"
-        "┃ 𝕺𝖜𝖓𝖊𝖗 𝕮𝖔𝖒𝖒𝖆𝖓𝖉𝖘\n"
-        "┃ • auth on/off — enable/disable bot in server\n"
-        "┃ • storage — bot system status\n"
-        "┃ • stats — how many people use the bot\n"
-        "┃ • activity — recent command usage log\n"
-        "┃ • clearcache — free up memory\n"
-        "┃ • setlevelrole <level> @role — set a level role reward\n"
-        "┃ • levelroles — list configured level role rewards\n"
+        "┃ 𝕱𝖚𝖓: ping, 8ball, joke, kiragpt, translate, trt\n"
+        "┃ 𝕴𝖓𝖋𝖔: avatar, userinfo, poll, updateinfo\n"
+        "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞: bal, daily, work, lb, rank, ranklb,\n"
+        "┃          withdraw, deposit, fish, beg, dig, rob\n"
+        "┃ 𝕾𝖍𝖔𝖕: shop, buy, use, inventory\n"
+        "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌: cf, roll, roulette, mines, blackjack, slot\n"
+        "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞: afk, cds, donate, link, unlink, help\n"
+        "┃ 𝕺𝖜𝖓𝖊𝖗: auth, storage, stats, activity, clearcache\n"
         "┃\n"
         "┃ ✦ use / or . before any command\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
+
+
+def build_help_text(name: str) -> str:
+    key = name.strip().lower().lstrip("./")
+    aliases = {
+        "coinflip": "cf", "wd": "withdraw", "dep": "deposit",
+        "inv": "inventory", "top": "leaderboard", "leaderboard": "lb",
+        "cooldowns": "cds", "bj": "blackjack", "lucky": "use",
+    }
+    key = aliases.get(key, key)
+    info = COMMAND_HELP.get(key)
+    if not info:
+        return f"❌ No help found for `{name}`.\nUse `.menu` to see command names."
+    return f"╭━━━〔 ❓ {key} 〕━━━⬣\n┃ {info.replace(chr(10), chr(10) + '┃ ')}\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
 
 
 def format_uptime(seconds: float):
@@ -809,6 +837,8 @@ DIG_OUTCOMES = [
 
 
 def do_fish(user_id: int):
+    if not has_global_item(user_id, "fishing_rod"):
+        return "❌ You need a **Fishing Rod** first. Buy one with `.buy fishing rod` (1,000 coins)."
     remaining = check_cooldown(fish_cooldowns, user_id, FISH_COOLDOWN_SECONDS)
     if remaining is not None:
         return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
@@ -843,6 +873,8 @@ def do_beg(user_id: int):
 
 
 def do_dig(user_id: int):
+    if not has_global_item(user_id, "shovel"):
+        return "❌ You need a **Shovel** first. Buy one with `.buy shovel` (1,000 coins)."
     remaining = check_cooldown(dig_cooldowns, user_id, DIG_COOLDOWN_SECONDS)
     if remaining is not None:
         return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
@@ -1375,6 +1407,10 @@ def do_dice(user_id: int, amount_str: str):
     update_balance(user_id, wallet=bal["wallet"] - amount)
     roll = random.randint(1, 6)
     won = roll >= 4
+    if not won and random.random() < min(0.9, 0.5 * get_lucky_stacks(user_id)):
+        won = True
+        roll = random.randint(4, 6)
+
 
     header = (
         "🎲 *DICE ROLL* 🎲\n"
@@ -1587,27 +1623,253 @@ def get_inventory(user_id: int):
     return rows
 
 
-def build_shop_text(guild_id: int) -> str:
-    items = get_shop_items(guild_id)
-    if not items:
-        return "🛒 The shop is empty right now."
-    lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃"]
-    for item_id, name, price, description, role_id in items:
-        desc_part = f" — {description}" if description else ""
-        lines.append(f"┃ **#{item_id}** {name} — {price:,} coins{desc_part}")
-    lines.append("┃")
-    lines.append("┃ Buy with `.buy <item id>`")
+def build_inventory_text(display_name: str, user_id: int) -> str:
+    custom = get_inventory(user_id)
+    global_items = get_global_inventory(user_id)
+    if not custom and not global_items:
+        return f"🎒 **{display_name}**'s inventory is empty."
+    lines = [f"╭━━━〔 🎒 {display_name}'s ɪɴᴠᴇɴᴛᴏʀʏ 〕━━━⬣", "┃"]
+    for key, qty in global_items:
+        info = GLOBAL_ITEMS.get(key, {})
+        lines.append(f"┃ {info.get('name', key)} x{qty}")
+    for name, quantity, description, role_id in custom:
+        lines.append(f"┃ {name} x{quantity}")
+    stacks = get_lucky_stacks(user_id)
+    until = get_cd_boost_until(user_id)
+    if stacks:
+        lines.append(f"┃ 🍀 Lucky stacks: {stacks} (win rate x{1 + 0.5 * stacks:.1f})")
+    if until and time.time() < until:
+        left = int(until - time.time())
+        lines.append(f"┃ ⚡ Cooldown boost: {left // 60}m {left % 60}s left")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
 
 
-def build_inventory_text(display_name: str, user_id: int) -> str:
-    items = get_inventory(user_id)
-    if not items:
-        return f"🎒 **{display_name}**'s inventory is empty."
-    lines = [f"╭━━━〔 🎒 {display_name}'s ɪɴᴠᴇɴᴛᴏʀʏ 〕━━━⬣", "┃"]
-    for name, quantity, description, role_id in items:
-        lines.append(f"┃ {name} x{quantity}")
+# ---------- Global shop items / effects ----------
+
+GLOBAL_ITEMS = {
+    "vx": {
+        "name": "Vx",
+        "price": 100000,
+        "description": "Halves all cooldowns for 5 minutes. Use with .use vx",
+        "consumable": True,
+        "duration": 300,
+    },
+    "v9": {
+        "name": "V9",
+        "price": 200000,
+        "description": "Halves all cooldowns for 10 minutes. Use with .use v9",
+        "consumable": True,
+        "duration": 600,
+    },
+    "lucky": {
+        "name": "Lucky Potion",
+        "price": 500000,
+        "description": "Adds +0.5 to your win-rate multiplier. Infinitely stackable. Use with .use lucky",
+        "consumable": True,
+    },
+    "gun": {
+        "name": "Gun",
+        "price": 1000,
+        "description": "Required to use .rob",
+        "consumable": False,
+    },
+    "fishing_rod": {
+        "name": "Fishing Rod",
+        "price": 1000,
+        "description": "Required to use .fish",
+        "consumable": False,
+    },
+    "shovel": {
+        "name": "Shovel",
+        "price": 1000,
+        "description": "Required to use .dig",
+        "consumable": False,
+    },
+}
+
+ITEM_ALIASES = {
+    "vx": "vx",
+    "v9": "v9",
+    "lucky": "lucky",
+    "lucky potion": "lucky",
+    "potion": "lucky",
+    "gun": "gun",
+    "fishing rod": "fishing_rod",
+    "rod": "fishing_rod",
+    "fishrod": "fishing_rod",
+    "shovel": "shovel",
+}
+
+
+def resolve_item_key(name: str):
+    return ITEM_ALIASES.get(name.strip().lower())
+
+
+def get_global_item_qty(user_id, item_key: str) -> int:
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT quantity FROM global_inventory WHERE user_id = %s AND item_key = %s",
+        (user_id, item_key),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row[0] if row else 0
+
+
+def has_global_item(user_id, item_key: str) -> bool:
+    return get_global_item_qty(user_id, item_key) > 0
+
+
+def add_global_item(user_id, item_key: str, amount: int = 1):
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO global_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id, item_key) DO UPDATE SET quantity = global_inventory.quantity + %s",
+        (user_id, item_key, amount, amount),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def remove_global_item(user_id, item_key: str, amount: int = 1) -> bool:
+    qty = get_global_item_qty(user_id, item_key)
+    if qty < amount:
+        return False
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE global_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s",
+        (amount, user_id, item_key),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return True
+
+
+def get_global_inventory(user_id):
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT item_key, quantity FROM global_inventory WHERE user_id = %s AND quantity > 0 ORDER BY item_key",
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def get_user_effects(user_id):
+    user_id = resolve_uid(user_id)
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT lucky_stacks, cd_boost_until FROM user_effects WHERE user_id = %s",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until) VALUES (%s, 0, NULL)",
+            (user_id,),
+        )
+        conn.commit()
+        cur.close()
+        release_db(conn)
+        return {"lucky_stacks": 0, "cd_boost_until": None}
+    cur.close()
+    release_db(conn)
+    return {"lucky_stacks": row[0] or 0, "cd_boost_until": row[1]}
+
+
+def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
+    current = get_user_effects(user_id)
+    user_id = resolve_uid(user_id)
+    stacks = current["lucky_stacks"] if lucky_stacks is None else lucky_stacks
+    until = current["cd_boost_until"] if cd_boost_until is None else cd_boost_until
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id) DO UPDATE SET lucky_stacks = EXCLUDED.lucky_stacks, "
+        "cd_boost_until = EXCLUDED.cd_boost_until",
+        (user_id, stacks, until),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def get_lucky_stacks(user_id) -> int:
+    return get_user_effects(user_id)["lucky_stacks"]
+
+
+def get_cd_boost_until(user_id):
+    return get_user_effects(user_id)["cd_boost_until"]
+
+
+def luck_chance(base: float, user_id) -> float:
+    """Each lucky potion adds +0.5 to the win multiplier. Capped at 95%."""
+    stacks = get_lucky_stacks(user_id)
+    return min(0.95, base * (1 + 0.5 * stacks))
+
+
+def buy_global_item(user_id, item_key: str):
+    item = GLOBAL_ITEMS[item_key]
+    user_id = resolve_uid(user_id)
+    bal = get_balance(user_id)
+    if bal["wallet"] < item["price"]:
+        return False, f"❌ You need **{item['price']:,}** coins but only have **{bal['wallet']:,}** in your wallet."
+    update_balance(user_id, wallet=bal["wallet"] - item["price"])
+    add_global_item(user_id, item_key, 1)
+    extra = ""
+    if item.get("consumable"):
+        extra = f"\nUse it with `.use {item_key}`"
+    return True, f"✅ You bought **{item['name']}** for **{item['price']:,}** coins!{extra}"
+
+
+def use_global_item(user_id, item_key: str):
+    item = GLOBAL_ITEMS.get(item_key)
+    if not item:
+        return "❌ Unknown item."
+    if not item.get("consumable"):
+        return f"❌ **{item['name']}** is a tool. You just need to own it."
+    if not remove_global_item(user_id, item_key, 1):
+        return f"❌ You don't have a **{item['name']}**."
+    if item_key in ("vx", "v9"):
+        until = time.time() + item["duration"]
+        set_user_effects(user_id, cd_boost_until=until)
+        mins = item["duration"] // 60
+        return f"⚡ **{item['name']}** activated! All cooldowns are halved for **{mins} minutes**."
+    if item_key == "lucky":
+        stacks = get_lucky_stacks(user_id) + 1
+        set_user_effects(user_id, lucky_stacks=stacks)
+        return (
+            f"🍀 You drank a **Lucky Potion**!\n"
+            f"Lucky stacks: **{stacks}**\n"
+            f"Win-rate multiplier: **x{1 + 0.5 * stacks:.1f}**"
+        )
+    return "✅ Used."
+
+
+def build_shop_text(guild_id: int) -> str:
+    lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃", "┃ **Global items**"]
+    for key, item in GLOBAL_ITEMS.items():
+        lines.append(f"┃ `{key}` {item['name']} — {item['price']:,} coins — {item['description']}")
+    custom = get_shop_items(guild_id)
+    if custom:
+        lines.append("┃")
+        lines.append("┃ **Server items**")
+        for item_id, name, price, description, role_id in custom:
+            desc_part = f" — {description}" if description else ""
+            lines.append(f"┃ **#{item_id}** {name} — {price:,} coins{desc_part}")
+    lines.append("┃")
+    lines.append("┃ Buy with `.buy vx` / `.buy gun` / `.buy <id>`")
+    lines.append("┃ Use potions with `.use vx` / `.use lucky`")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
 
@@ -1617,6 +1879,9 @@ def build_inventory_text(display_name: str, user_id: int) -> str:
 def do_rob(robber_id: int, victim_id: int):
     if robber_id == victim_id:
         return "❌ You can't rob yourself."
+
+    if not has_global_item(robber_id, "gun"):
+        return "❌ You need a **Gun** first. Buy one with `.buy gun` (1,000 coins)."
 
     remaining = check_persistent_cooldown("rob", robber_id, ROB_COOLDOWN_SECONDS)
     if remaining is not None:
@@ -1632,7 +1897,7 @@ def do_rob(robber_id: int, victim_id: int):
     if victim_bal["wallet"] < 100:
         return "❌ That person doesn't have enough in their wallet to be worth robbing."
 
-    if random.random() < ROB_SUCCESS_CHANCE:
+    if random.random() < luck_chance(ROB_SUCCESS_CHANCE, robber_id):
         stolen = int(victim_bal["wallet"] * random.uniform(0.05, ROB_MAX_STEAL_PERCENT))
         stolen = max(stolen, 1)
         update_balance(victim_id, wallet=victim_bal["wallet"] - stolen)
@@ -2207,6 +2472,11 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
     result = random.choice(["heads", "tails"])
     result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
     won = side == result
+    if not won and random.random() < min(0.9, 0.5 * get_lucky_stacks(user_id)):
+        won = True
+        result = side
+        result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
+
 
     if won:
         payout = amount * 2
@@ -2601,10 +2871,21 @@ async def shop_prefix(ctx: commands.Context):
     await ctx.reply(build_shop_text(ctx.guild.id))
 
 
+def handle_buy(user_id: int, guild_id: int, item_name: str):
+    key = resolve_item_key(item_name)
+    if key:
+        return buy_global_item(user_id, key) + (None,)
+    try:
+        item_id = int(item_name)
+    except ValueError:
+        return False, "❌ Unknown item. Use `.shop` to see names and IDs.", None
+    return buy_shop_item(user_id, guild_id, item_id)
+
+
 @bot.tree.command(name="buy", description="Buy an item from the shop")
-@app_commands.describe(item_id="The item's ID number, shown in .shop")
-async def buy(interaction: discord.Interaction, item_id: int):
-    success, message, role_id = buy_shop_item(did(interaction.user.id), interaction.guild.id, item_id)
+@app_commands.describe(item="Item name (vx, gun, shovel...) or server item ID")
+async def buy(interaction: discord.Interaction, item: str):
+    success, message, role_id = handle_buy(did(interaction.user.id), interaction.guild.id, item)
     if success and role_id is not None and isinstance(interaction.user, discord.Member):
         role = interaction.guild.get_role(role_id)
         if role is not None:
@@ -2617,8 +2898,8 @@ async def buy(interaction: discord.Interaction, item_id: int):
 
 
 @bot.command(name="buy")
-async def buy_prefix(ctx: commands.Context, item_id: int):
-    success, message, role_id = buy_shop_item(did(ctx.author.id), ctx.guild.id, item_id)
+async def buy_prefix(ctx: commands.Context, *, item: str):
+    success, message, role_id = handle_buy(did(ctx.author.id), ctx.guild.id, item)
     if success and role_id is not None and isinstance(ctx.author, discord.Member):
         role = ctx.guild.get_role(role_id)
         if role is not None:
@@ -2628,6 +2909,39 @@ async def buy_prefix(ctx: commands.Context, item_id: int):
             except discord.Forbidden:
                 message += "\n⚠️ Couldn't assign the role — check my role permissions."
     await ctx.reply(message)
+
+
+@bot.tree.command(name="use", description="Use a consumable item (vx, v9, lucky)")
+@app_commands.describe(item="vx, v9, or lucky")
+async def use_item(interaction: discord.Interaction, item: str):
+    key = resolve_item_key(item)
+    if not key:
+        await interaction.response.send_message("❌ Use `.use vx`, `.use v9`, or `.use lucky`.")
+        return
+    await interaction.response.send_message(use_global_item(did(interaction.user.id), key))
+
+
+@bot.command(name="use")
+async def use_item_prefix(ctx: commands.Context, *, item: str):
+    key = resolve_item_key(item)
+    if not key:
+        await ctx.reply("❌ Use `.use vx`, `.use v9`, or `.use lucky`.")
+        return
+    await ctx.reply(use_global_item(did(ctx.author.id), key))
+
+
+@bot.tree.command(name="help", description="Show help for one command")
+@app_commands.describe(command="Command name")
+async def help_slash(interaction: discord.Interaction, command: str):
+    await interaction.response.send_message(build_help_text(command))
+
+
+@bot.command(name="help")
+async def help_prefix(ctx: commands.Context, *, command: str = ""):
+    if not command.strip():
+        await ctx.reply("Usage: `.help <command>`\nExample: `.help fish`\nOr use `.menu` for the list.")
+        return
+    await ctx.reply(build_help_text(command))
 
 
 @bot.tree.command(name="inventory", description="See your (or someone else's) items")
