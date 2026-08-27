@@ -25,7 +25,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.0"
+BOT_VERSION = "1.8.1"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
@@ -33,10 +33,10 @@ LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
     "date": "2026-08-27",
     "changes": [
-        "Global shop items: Vx, V9, Lucky Potion, Gun, Fishing Rod, Shovel",
-        "Fish / dig / rob now require the matching tool",
-        "Vx and V9 halve cooldowns when used; Lucky Potion stacks win rate",
-        ".menu is now a short list — use .help <command> for details",
+        "Menu is spaced out and KiraGPT is listed at the top",
+        "Removed duplicate slash commands",
+        ".storage now shows real bot stats (RAM, ping, games, sessions)",
+        ".clearcache now actually wipes sessions, games, AFK, and cooldowns",
     ],
 }
 psutil.cpu_percent(interval=None)  # prime the reading
@@ -732,19 +732,71 @@ COMMAND_HELP = {
 
 def build_menu_text():
     return (
-        "╭━━━〔 𝕮𝖔𝖒𝖒𝖆𝖓𝖉 𝕸𝖊𝖓𝖚 〕━━━⬣\n"
+        "╭━━━〔 Command Menu 〕━━━⬣\n"
+        "┃\n"
         "┃ Type `.help <command>` for details\n"
         "┃\n"
-        "┃ 𝕱𝖚𝖓: ping, 8ball, joke, kiragpt, translate, trt\n"
-        "┃ 𝕴𝖓𝖋𝖔: avatar, userinfo, poll, updateinfo\n"
-        "┃ 𝕰𝖈𝖔𝖓𝖔𝖒𝖞: bal, daily, work, lb, rank, ranklb,\n"
-        "┃          withdraw, deposit, fish, beg, dig, rob\n"
-        "┃ 𝕾𝖍𝖔𝖕: shop, buy, use, inventory\n"
-        "┃ 𝕲𝖆𝖒𝖇𝖑𝖎𝖓𝖌: cf, roll, roulette, mines, blackjack, slot\n"
-        "┃ 𝖀𝖙𝖎𝖑𝖎𝖙𝖞: afk, cds, donate, link, unlink, help\n"
-        "┃ 𝕺𝖜𝖓𝖊𝖗: auth, storage, stats, activity, clearcache\n"
+        "┃ ── KiraGPT ──\n"
+        "┃ • kiragpt on / off\n"
+        "┃ • kiragpt wild on / ai on / normal on\n"
+        "┃ • kiragpt <message>\n"
         "┃\n"
-        "┃ ✦ use / or . before any command\n"
+        "┃ ── Fun ──\n"
+        "┃ • ping\n"
+        "┃ • 8ball\n"
+        "┃ • joke\n"
+        "┃ • translate\n"
+        "┃ • trt\n"
+        "┃\n"
+        "┃ ── Info ──\n"
+        "┃ • avatar\n"
+        "┃ • userinfo\n"
+        "┃ • poll\n"
+        "┃ • updateinfo\n"
+        "┃\n"
+        "┃ ── Economy ──\n"
+        "┃ • bal\n"
+        "┃ • daily\n"
+        "┃ • work\n"
+        "┃ • lb\n"
+        "┃ • rank\n"
+        "┃ • ranklb\n"
+        "┃ • withdraw\n"
+        "┃ • deposit\n"
+        "┃ • fish\n"
+        "┃ • beg\n"
+        "┃ • dig\n"
+        "┃ • rob\n"
+        "┃\n"
+        "┃ ── Shop ──\n"
+        "┃ • shop\n"
+        "┃ • buy\n"
+        "┃ • use\n"
+        "┃ • inventory\n"
+        "┃\n"
+        "┃ ── Gambling ──\n"
+        "┃ • cf\n"
+        "┃ • roll\n"
+        "┃ • roulette\n"
+        "┃ • mines\n"
+        "┃ • blackjack\n"
+        "┃ • slot\n"
+        "┃\n"
+        "┃ ── Utility ──\n"
+        "┃ • afk\n"
+        "┃ • cds\n"
+        "┃ • donate\n"
+        "┃ • link\n"
+        "┃ • unlink\n"
+        "┃ • help\n"
+        "┃\n"
+        "┃ ── Owner ──\n"
+        "┃ • auth\n"
+        "┃ • storage\n"
+        "┃ • stats\n"
+        "┃ • activity\n"
+        "┃ • clearcache\n"
+        "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
@@ -773,42 +825,68 @@ def format_uptime(seconds: float):
 
 def build_storage_text():
     uptime = time.time() - BOT_START_TIME
+    process = psutil.Process()
+    proc_mb = process.memory_info().rss / (1024 * 1024)
     mem = psutil.virtual_memory()
-    used_mb = mem.used / (1024 * 1024)
-    total_mb = mem.total / (1024 * 1024)
-    free_mb = mem.available / (1024 * 1024)
     cpu = psutil.cpu_percent(interval=None)
+    latency = round(bot.latency * 1000) if bot.latency else 0
     return (
-        "⚙️ *Kiraizenin — System Status*\n"
+        "⚙️ *Bot Storage / Status*\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        f"🕒 *Uptime:* {format_uptime(uptime)}\n"
-        f"💾 *Memory:* {used_mb:.0f}/{total_mb:.0f} MB ({mem.percent}%)\n"
-        f"🔋 *Free RAM:* {free_mb:.0f} MB\n"
-        f"🧠 *CPU Load:* {cpu}%\n"
-        f"📦 *Version:* {BOT_VERSION}\n"
-        "👑 *Owner:* kira\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "🌐 *Update:* Available ✅\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "💬 *Status:* Running Smooth ⚡\n"
-        "> powered by kira Tech 🚀"
+        f"🕒 Uptime: {format_uptime(uptime)}\n"
+        f"📡 Ping: {latency}ms\n"
+        f"🏠 Servers: {len(bot.guilds)}\n"
+        f"👤 Cached users: {len(bot.users)}\n"
+        f"💬 Cached messages: {len(bot.cached_messages)}\n"
+        f"🧠 KiraGPT sessions: {len(kiragpt_sessions)}\n"
+        f"💣 Active mines games: {len(active_mines_games)}\n"
+        f"🃏 Active blackjack games: {len(active_blackjack_games)}\n"
+        f"💾 Bot RAM: {proc_mb:.1f} MB\n"
+        f"🖥️ System RAM: {mem.percent}% used\n"
+        f"⚙️ CPU: {cpu}%\n"
+        f"📦 Version: {BOT_VERSION}\n"
+        "━━━━━━━━━━━━━━━━━━━"
     )
 
 
-def build_clearcache_text():
+def do_clearcache():
     process = psutil.Process()
     before_mb = process.memory_info().rss / (1024 * 1024)
+
+    sessions_cleared = len(kiragpt_sessions)
+    kiragpt_sessions.clear()
+
+    mines_cleared = len(active_mines_games)
+    active_mines_games.clear()
+
+    bj_cleared = len(active_blackjack_games)
+    active_blackjack_games.clear()
+
+    afk_cleared = len(afk_users)
+    afk_users.clear()
+
+    for bucket in (
+        cf_cooldowns, roulette_cooldowns, fish_cooldowns, beg_cooldowns,
+        dig_cooldowns, slot_cooldowns, dice_cooldowns,
+    ):
+        bucket.clear()
+
     collected = gc.collect()
     after_mb = process.memory_info().rss / (1024 * 1024)
     freed_mb = max(0.0, before_mb - after_mb)
+
     return (
-        "🧹 *Cache Cleared!*\n"
+        "🧹 *Cache Cleared*\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        f"🗑️ *Removed:* {collected} unused object(s)\n"
-        f"💾 *Freed:* {freed_mb:.2f} MB\n"
+        f"🧠 KiraGPT sessions wiped: {sessions_cleared}\n"
+        f"💣 Mines games ended: {mines_cleared}\n"
+        f"🃏 Blackjack games ended: {bj_cleared}\n"
+        f"💤 AFK entries removed: {afk_cleared}\n"
+        f"⏱️ Memory cooldowns reset\n"
+        f"🗑️ GC objects collected: {collected}\n"
+        f"💾 RAM change: {freed_mb:.2f} MB\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "✅ *System optimized!*\n"
-        "> powered by kira Tech 🚀"
+        "✅ Bot cache was actually cleared."
     )
 
 
@@ -2385,12 +2463,6 @@ async def withdraw(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_withdraw(did(interaction.user.id), amount))
 
 
-@bot.tree.command(name="wd", description="Withdraw money from your bank to your wallet")
-@app_commands.describe(amount="Amount to withdraw, or 'all'")
-async def wd(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_withdraw(did(interaction.user.id), amount))
-
-
 @bot.command(name="withdraw", aliases=["wd"])
 async def withdraw_prefix(ctx: commands.Context, amount: str):
     await ctx.reply(do_withdraw(did(ctx.author.id), amount))
@@ -2399,12 +2471,6 @@ async def withdraw_prefix(ctx: commands.Context, amount: str):
 @bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
 @app_commands.describe(amount="Amount to deposit, or 'all'")
 async def deposit(interaction: discord.Interaction, amount: str):
-    await interaction.response.send_message(do_deposit(did(interaction.user.id), amount))
-
-
-@bot.tree.command(name="dep", description="Deposit money from your wallet to your bank")
-@app_commands.describe(amount="Amount to deposit, or 'all'")
-async def dep(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_deposit(did(interaction.user.id), amount))
 
 
@@ -2509,12 +2575,6 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
 @bot.tree.command(name="cf", description="Bet on a coinflip")
 @app_commands.describe(side="heads or tails", amount="Amount to bet")
 async def cf(interaction: discord.Interaction, side: str, amount: str):
-    await interaction.response.send_message(await run_coinflip(did(interaction.user.id), side, amount))
-
-
-@bot.tree.command(name="coinflip", description="Bet on a coinflip")
-@app_commands.describe(side="heads or tails", amount="Amount to bet")
-async def coinflip(interaction: discord.Interaction, side: str, amount: str):
     await interaction.response.send_message(await run_coinflip(did(interaction.user.id), side, amount))
 
 
@@ -2664,13 +2724,13 @@ async def clearcache(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
         await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
         return
-    await interaction.response.send_message(build_clearcache_text())
+    await interaction.response.send_message(do_clearcache())
 
 
 @bot.command(name="clearcache")
 @commands.is_owner()
 async def clearcache_prefix(ctx: commands.Context):
-    await ctx.reply(build_clearcache_text())
+    await ctx.reply(do_clearcache())
 
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
@@ -2725,11 +2785,6 @@ async def work_prefix(ctx: commands.Context):
 
 @bot.tree.command(name="lb", description="Show the richest users")
 async def lb(interaction: discord.Interaction):
-    await interaction.response.send_message(build_leaderboard_text())
-
-
-@bot.tree.command(name="top", description="Show the richest users")
-async def top(interaction: discord.Interaction):
     await interaction.response.send_message(build_leaderboard_text())
 
 
@@ -2809,17 +2864,6 @@ async def mines_start(interaction: discord.Interaction, bet: str, mines: int = 3
     await interaction.response.send_message(start_mines(did(interaction.user.id), bet, str(mines)))
 
 
-@bot.tree.command(name="minesdig", description="Dig a square in your mines game")
-@app_commands.describe(square="Square number (1-25)")
-async def minesdig(interaction: discord.Interaction, square: int):
-    await interaction.response.send_message(dig_mines(did(interaction.user.id), str(square)))
-
-
-@bot.tree.command(name="minescashout", description="Cash out your mines game")
-async def minescashout(interaction: discord.Interaction):
-    await interaction.response.send_message(cashout_mines(did(interaction.user.id)))
-
-
 @bot.command(name="blackjack", aliases=["bj"])
 async def blackjack_prefix(ctx: commands.Context, action: str = None):
     user_id = did(ctx.author.id)
@@ -2839,16 +2883,6 @@ async def blackjack_prefix(ctx: commands.Context, action: str = None):
 @app_commands.describe(bet="Amount to bet, or 'all'")
 async def blackjack_start(interaction: discord.Interaction, bet: str):
     await interaction.response.send_message(start_blackjack(did(interaction.user.id), bet))
-
-
-@bot.tree.command(name="blackjackhit", description="Draw a card in your blackjack game")
-async def blackjackhit(interaction: discord.Interaction):
-    await interaction.response.send_message(hit_blackjack(did(interaction.user.id)))
-
-
-@bot.tree.command(name="blackjackstand", description="Stand in your blackjack game")
-async def blackjackstand(interaction: discord.Interaction):
-    await interaction.response.send_message(stand_blackjack(did(interaction.user.id)))
 
 
 @bot.tree.command(name="rob", description="Attempt to rob another user")
@@ -3034,11 +3068,6 @@ async def roll(interaction: discord.Interaction, amount: str):
 @bot.command(name="roll")
 async def roll_prefix(ctx: commands.Context, amount: str):
     await ctx.reply(do_dice(did(ctx.author.id), amount))
-
-
-@bot.tree.command(name="cooldowns", description="Show your active cooldowns")
-async def cooldowns(interaction: discord.Interaction):
-    await interaction.response.send_message(build_cooldowns_text(did(interaction.user.id)))
 
 
 @bot.command(name="cds", aliases=["cooldowns"])
