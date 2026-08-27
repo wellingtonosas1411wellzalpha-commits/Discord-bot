@@ -33,7 +33,7 @@ LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
     "date": "2026-08-22",
     "changes": [
-        "Added a shop system — admins can add items with .shopadd, users buy with .buy",
+        "Added a shop and inventory system — buy with .buy, see items with .inventory",
         "Added .inventory to see items you've bought",
         "Added level role rewards — configure with .setlevelrole",
         "Added .blackjack — full interactive blackjack (hit/stand)",
@@ -726,8 +726,6 @@ def build_menu_text():
         "┃ • stats — how many people use the bot\n"
         "┃ • activity — recent command usage log\n"
         "┃ • clearcache — free up memory\n"
-        "┃ • shopadd <name> <price> [description] — add shop item\n"
-        "┃ • shopremove <item id> — remove shop item\n"
         "┃ • setlevelrole <level> @role — set a level role reward\n"
         "┃ • levelroles — list configured level role rewards\n"
         "┃\n"
@@ -1592,7 +1590,7 @@ def get_inventory(user_id: int):
 def build_shop_text(guild_id: int) -> str:
     items = get_shop_items(guild_id)
     if not items:
-        return "🛒 The shop is empty. Ask an admin to add items with `.shopadd`."
+        return "🛒 The shop is empty right now."
     lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃"]
     for item_id, name, price, description, role_id in items:
         desc_part = f" — {description}" if description else ""
@@ -2643,44 +2641,6 @@ async def inventory(interaction: discord.Interaction, user: discord.User = None)
 async def inventory_prefix(ctx: commands.Context, user: discord.User = None):
     target = user or ctx.author
     await ctx.reply(build_inventory_text(target.display_name, did(target.id)))
-
-
-@bot.tree.command(name="shopadd", description="[Admin] Add an item to the shop")
-@app_commands.describe(name="Item name", price="Price in coins", description="Short description", role="Role to grant on purchase (optional)")
-async def shopadd(interaction: discord.Interaction, name: str, price: int, description: str = "", role: discord.Role = None):
-    if not is_kira_creator(interaction.user):
-        await interaction.response.send_message("❌ Only server administrators can do that.")
-        return
-    item_id = add_shop_item(interaction.guild.id, name, price, description, role.id if role else None)
-    await interaction.response.send_message(f"✅ Added **{name}** to the shop as item **#{item_id}**.")
-
-
-@bot.command(name="shopadd")
-async def shopadd_prefix(ctx: commands.Context, name: str, price: int, *, description: str = ""):
-    if not is_kira_creator(ctx.author):
-        await ctx.reply("❌ Only server administrators can do that.")
-        return
-    item_id = add_shop_item(ctx.guild.id, name, price, description)
-    await ctx.reply(f"✅ Added **{name}** to the shop as item **#{item_id}**.")
-
-
-@bot.tree.command(name="shopremove", description="[Admin] Remove an item from the shop")
-@app_commands.describe(item_id="The item's ID number, shown in .shop")
-async def shopremove(interaction: discord.Interaction, item_id: int):
-    if not is_kira_creator(interaction.user):
-        await interaction.response.send_message("❌ Only server administrators can do that.")
-        return
-    removed = remove_shop_item(interaction.guild.id, item_id)
-    await interaction.response.send_message("✅ Item removed." if removed else "❌ No item with that ID.")
-
-
-@bot.command(name="shopremove")
-async def shopremove_prefix(ctx: commands.Context, item_id: int):
-    if not is_kira_creator(ctx.author):
-        await ctx.reply("❌ Only server administrators can do that.")
-        return
-    removed = remove_shop_item(ctx.guild.id, item_id)
-    await ctx.reply("✅ Item removed." if removed else "❌ No item with that ID.")
 
 
 @bot.tree.command(name="setlevelrole", description="[Admin] Set a role reward for reaching a level")
