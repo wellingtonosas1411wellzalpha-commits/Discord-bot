@@ -25,7 +25,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.1"
+BOT_VERSION = "1.9.0"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
@@ -33,10 +33,10 @@ LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
     "date": "2026-08-27",
     "changes": [
-        "Menu is spaced out and KiraGPT is listed at the top",
-        "Removed duplicate slash commands",
-        ".storage now shows real bot stats (RAM, ping, games, sessions)",
-        ".clearcache now actually wipes sessions, games, AFK, and cooldowns",
+        "Lucky Potion now also affects roulette, slot, mines, and blackjack",
+        "KiraGPT's 50-reply limit now persists across restarts (was resetting on every redeploy)",
+        "Buying a Gun/Fishing Rod/Shovel you already own is now blocked",
+        "Removed unused leftover shop-admin code",
     ],
 }
 psutil.cpu_percent(interval=None)  # prime the reading
@@ -321,6 +321,7 @@ def init_db():
             cd_boost_until DOUBLE PRECISION
         )
     """)
+    cur.execute("ALTER TABLE user_effects ADD COLUMN IF NOT EXISTS kiragpt_reply_count INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     cur.close()
     db_pool.putconn(conn)
@@ -1209,10 +1210,24 @@ def dig_mines(user_id: int, position_str: str):
     if position in game["revealed"]:
         return "❌ You already revealed that square."
 
+    dodged = False
     if position in game["mine_positions"]:
-        text = build_mines_exploded_text(game, position)
-        del active_mines_games[user_id]
-        return text
+        dodge_chance = min(0.9, 0.5 * get_lucky_stacks(user_id))
+        if random.random() < dodge_chance:
+            # Lucky Potion: dodge the mine by relocating it elsewhere on the
+            # board, so the total mine count (and payout math) stays the same.
+            available = [
+                p for p in range(1, 26)
+                if p not in game["revealed"] and p != position and p not in game["mine_positions"]
+            ]
+            game["mine_positions"].discard(position)
+            if available:
+                game["mine_positions"].add(random.choice(available))
+            dodged = True
+        else:
+            text = build_mines_exploded_text(game, position)
+            del active_mines_games[user_id]
+            return text
 
     game["revealed"].add(position)
     safe_total = 25 - game["mines_count"]
@@ -1231,7 +1246,10 @@ def dig_mines(user_id: int, position_str: str):
             f"🎉 ALL GEMS FOUND! Payout: ${payout:,}"
         )
 
-    return build_mines_progress_text(game)
+    text = build_mines_progress_text(game)
+    if dodged:
+        text = "🍀 Lucky Potion saved you from a mine!\n" + text
+    return text
 
 
 def cashout_mines(user_id: int):
@@ -1374,7 +1392,13 @@ def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
         update_balance(user_id, wallet=bal["wallet"] + bet)
         result_line = f"🤝 Push! Your **${bet:,}** bet was returned."
     else:
-        result_line = f"😔 You lost **${bet:,}**."
+        if random.random() < min(0.9, 0.5 * get_lucky_stacks(user_id)):
+            payout = bet * 2
+            bal = get_balance(user_id)
+            update_balance(user_id, wallet=bal["wallet"] + payout)
+            result_line = f"🍀 Lucky save! You won **${payout:,}**!"
+        else:
+            result_line = f"😔 You lost **${bet:,}**."
 
     return build_blackjack_text(game, reveal_dealer=True, result_line=result_line)
 
@@ -1444,6 +1468,16 @@ async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
     spin_display = " | ".join(spin)
     counts = {s: spin.count(s) for s in set(spin)}
     max_count = max(counts.values())
+
+    # Lucky Potion: if it was a total loss, give a chance to upgrade it to
+    # a partial win (2 matching), matching the "win-rate boost" the item promises.
+    if max_count == 1 and random.random() < min(0.9, 0.5 * get_lucky_stacks(user_id)):
+        symbol = random.choice(SLOT_SYMBOLS)
+        spin = [symbol, symbol, random.choice([s for s in SLOT_SYMBOLS if s != symbol])]
+        random.shuffle(spin)
+        spin_display = " | ".join(spin)
+        counts = {s: spin.count(s) for s in set(spin)}
+        max_count = max(counts.values())
 
     if max_count == 3:
         payout = amount * SLOT_JACKPOT_MULTIPLIER
@@ -1605,33 +1639,6 @@ def do_donate(sender_id: int, receiver_id: int, amount_str: str):
 
 
 # ---------- Shop / Inventory ----------
-
-def add_shop_item(guild_id: int, name: str, price: int, description: str = "", role_id: int = None):
-    conn, cur = get_db()
-    cur.execute(
-        "INSERT INTO shop_items (guild_id, name, price, description, role_id) "
-        "VALUES (%s, %s, %s, %s, %s) RETURNING item_id",
-        (str(guild_id), name, price, description, str(role_id) if role_id else None),
-    )
-    item_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    release_db(conn)
-    return item_id
-
-
-def remove_shop_item(guild_id: int, item_id: int):
-    conn, cur = get_db()
-    cur.execute(
-        "DELETE FROM shop_items WHERE guild_id = %s AND item_id = %s",
-        (str(guild_id), item_id),
-    )
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db(conn)
-    return deleted
-
 
 def get_shop_items(guild_id: int):
     conn, cur = get_db()
@@ -1848,22 +1855,22 @@ def get_user_effects(user_id):
     user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
-        "SELECT lucky_stacks, cd_boost_until FROM user_effects WHERE user_id = %s",
+        "SELECT lucky_stacks, cd_boost_until, kiragpt_reply_count FROM user_effects WHERE user_id = %s",
         (user_id,),
     )
     row = cur.fetchone()
     if row is None:
         cur.execute(
-            "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until) VALUES (%s, 0, NULL)",
+            "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until, kiragpt_reply_count) VALUES (%s, 0, NULL, 0)",
             (user_id,),
         )
         conn.commit()
         cur.close()
         release_db(conn)
-        return {"lucky_stacks": 0, "cd_boost_until": None}
+        return {"lucky_stacks": 0, "cd_boost_until": None, "kiragpt_reply_count": 0}
     cur.close()
     release_db(conn)
-    return {"lucky_stacks": row[0] or 0, "cd_boost_until": row[1]}
+    return {"lucky_stacks": row[0] or 0, "cd_boost_until": row[1], "kiragpt_reply_count": row[2] or 0}
 
 
 def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
@@ -1873,10 +1880,27 @@ def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
     until = current["cd_boost_until"] if cd_boost_until is None else cd_boost_until
     conn, cur = get_db()
     cur.execute(
-        "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until) VALUES (%s, %s, %s) "
+        "INSERT INTO user_effects (user_id, lucky_stacks, cd_boost_until, kiragpt_reply_count) VALUES (%s, %s, %s, 0) "
         "ON CONFLICT (user_id) DO UPDATE SET lucky_stacks = EXCLUDED.lucky_stacks, "
         "cd_boost_until = EXCLUDED.cd_boost_until",
         (user_id, stacks, until),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def get_kiragpt_reply_count(user_id) -> int:
+    return get_user_effects(user_id)["kiragpt_reply_count"]
+
+
+def increment_kiragpt_reply_count(user_id):
+    uid = resolve_uid(user_id)
+    get_user_effects(user_id)  # ensures a row exists
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE user_effects SET kiragpt_reply_count = kiragpt_reply_count + 1 WHERE user_id = %s",
+        (uid,),
     )
     conn.commit()
     cur.close()
@@ -1899,6 +1923,8 @@ def luck_chance(base: float, user_id) -> float:
 
 def buy_global_item(user_id, item_key: str):
     item = GLOBAL_ITEMS[item_key]
+    if not item.get("consumable") and has_global_item(user_id, item_key):
+        return False, f"❌ You already own a **{item['name']}** — no need to buy another."
     user_id = resolve_uid(user_id)
     bal = get_balance(user_id)
     if bal["wallet"] < item["price"]:
@@ -2248,7 +2274,6 @@ def get_kiragpt_session(user_id: str):
             "active": False,
             "history": [],
             "mode": "normal",          # normal / wild / ai
-            "reply_count": 0,          # for non-admin limit
             "pending_file": None,
             "pending_filename": None,
         }
@@ -2266,7 +2291,7 @@ async def handle_kiragpt_message(user, prompt: str, send_func, files: list = Non
 
     # Rate limit for non-admins
     if not is_creator:
-        if session.get("reply_count", 0) >= MAX_REPLIES_FOR_NORMAL_USERS:
+        if get_kiragpt_reply_count(user_id) >= MAX_REPLIES_FOR_NORMAL_USERS:
             await send_func(
                 f"🚫 You have reached the limit of **{MAX_REPLIES_FOR_NORMAL_USERS} replies** "
                 f"for regular users.\nAn administrator can lift this limit."
@@ -2315,7 +2340,7 @@ async def handle_kiragpt_message(user, prompt: str, send_func, files: list = Non
         session["history"] = session["history"][-20:]
 
     if not is_creator:
-        session["reply_count"] = session.get("reply_count", 0) + 1
+        increment_kiragpt_reply_count(user_id)
 
     if len(reply_text) <= 1900:
         await send_func(reply_text)
@@ -2641,6 +2666,14 @@ async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_fu
 
     number, color, color_display = do_roulette_spin()
     won = color == color_choice
+    if not won and random.random() < min(0.9, 0.5 * get_lucky_stacks(user_id)):
+        won = True
+        # Re-roll a number that actually matches the chosen color, so the
+        # displayed result stays consistent with the "you won" outcome.
+        for _ in range(50):
+            number, color, color_display = do_roulette_spin()
+            if color == color_choice:
+                break
     if won:
         payout = amount * ROULETTE_MULTIPLIER[color_choice]
         new_bal = get_balance(user_id)
