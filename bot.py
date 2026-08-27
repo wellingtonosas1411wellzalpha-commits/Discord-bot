@@ -3131,10 +3131,47 @@ async def auth_prefix(ctx: commands.Context, state: str):
     await ctx.reply(f"🔐 Bot responses turned **{state}** for this server.")
 
 
+async def broadcast_owner_message(text: str):
+    """Post @everyone + text in every server the bot can speak in."""
+    sent = 0
+    failed = 0
+    mention = discord.AllowedMentions(everyone=True, users=False, roles=False, replied_user=False)
+    for guild in bot.guilds:
+        channel = None
+        if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
+            channel = guild.system_channel
+        else:
+            for ch in guild.text_channels:
+                perms = ch.permissions_for(guild.me)
+                if perms.send_messages:
+                    channel = ch
+                    break
+        if channel is None:
+            failed += 1
+            continue
+        try:
+            await channel.send(f"@everyone {text}", allowed_mentions=mention)
+            sent += 1
+        except discord.HTTPException:
+            failed += 1
+    return sent, failed
+
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+
+    # Owner DM broadcast: "!hello" -> "@everyone hello" in every server
+    if message.guild is None and message.content.startswith("!"):
+        if await bot.is_owner(message.author):
+            text = message.content[1:].strip()
+            if not text:
+                await message.channel.send("❌ Type something after `!`\nExample: `!nice`")
+                return
+            sent, failed = await broadcast_owner_message(text)
+            await message.channel.send(f"✅ Sent to **{sent}** server(s). Failed: **{failed}**.")
+            return
 
     # XP / leveling
     if message.guild is not None:
