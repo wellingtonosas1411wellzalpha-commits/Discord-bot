@@ -25,10 +25,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.3"
+BOT_VERSION = "1.8.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.8.4",
+        "date": "2026-08-29",
+        "changes": [
+            "Removed dead account-linking code (account_links table + resolve_uid) — nothing ever wrote to it, so it was an unused DB lookup on every economy command",
+            "Removed unused DEFAULT_LIMIT constant and an unused parameter on add_message_xp",
+        ],
+    },
     {
         "version": "1.8.3",
         "date": "2026-08-28",
@@ -202,7 +210,7 @@ def check_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     redeploy would let people bypass the limit. Returns remaining seconds if
     still on cooldown, else None (and records this use as the new start)."""
     seconds = apply_cd_boost(user_id, seconds)
-    uid = resolve_uid(user_id)
+    uid = user_id
     conn, cur = get_db()
     cur.execute(
         "SELECT last_used FROM persistent_cooldowns WHERE user_id = %s AND command_name = %s",
@@ -243,7 +251,6 @@ ROB_COOLDOWN_SECONDS = 3600
 ROB_SUCCESS_CHANCE = 0.45
 ROB_MAX_STEAL_PERCENT = 0.25
 ROB_FAIL_PENALTY_PERCENT = 0.10
-DEFAULT_LIMIT = 50000
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -276,12 +283,6 @@ def init_db():
             wallet BIGINT NOT NULL,
             bank BIGINT NOT NULL,
             limit_amt BIGINT NOT NULL
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS account_links (
-            alias_id TEXT PRIMARY KEY,
-            canonical_id TEXT NOT NULL
         )
     """)
     cur.execute("""
@@ -362,19 +363,7 @@ def init_db():
     db_pool.putconn(conn)
 
 
-def resolve_uid(user_id: str) -> str:
-    """If this ID has been linked to another account, return the canonical ID
-    for account linking support."""
-    conn, cur = get_db()
-    cur.execute("SELECT canonical_id FROM account_links WHERE alias_id = %s", (user_id,))
-    row = cur.fetchone()
-    cur.close()
-    release_db(conn)
-    return row[0] if row else user_id
-
-
 def get_balance(user_id: int):
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute("SELECT wallet, bank FROM balances WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
@@ -393,7 +382,6 @@ def get_balance(user_id: int):
 
 
 def update_balance(user_id: int, wallet=None, bank=None):
-    user_id = resolve_uid(user_id)
     bal = get_balance(user_id)  # ensures row exists
     new_wallet = bal["wallet"] if wallet is None else wallet
     new_bank = bal["bank"] if bank is None else bank
@@ -413,7 +401,6 @@ def xp_for_level(level: int) -> int:
 
 
 def get_level_data(user_id: int):
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute("SELECT xp, level, last_xp_gain FROM levels WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
@@ -468,10 +455,9 @@ def list_level_roles(guild_id: int):
     return rows
 
 
-def add_message_xp(user_id: int, guild_id: int = None):
+def add_message_xp(user_id: int):
     """Award XP for a message, respecting a per-user cooldown. Returns the new
     level if the user leveled up this call, else None."""
-    user_id = resolve_uid(user_id)
     data = get_level_data(user_id)
     now = time.time()
     if data["last_xp_gain"] is not None:
@@ -1522,7 +1508,7 @@ def do_dice(user_id: int, amount_str: str):
 
 def get_remaining_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     """Read-only check for a persistent cooldown, does not start/reset it."""
-    uid = resolve_uid(user_id)
+    uid = user_id
     conn, cur = get_db()
     cur.execute(
         "SELECT last_used FROM persistent_cooldowns WHERE user_id = %s AND command_name = %s",
@@ -1642,7 +1628,6 @@ def buy_shop_item(user_id: int, guild_id: int, item_id: int):
         return False, "❌ That item doesn't exist in this server's shop.", None
     _, name, price, description, role_id = item
 
-    user_id = resolve_uid(user_id)
     bal = get_balance(user_id)
     if bal["wallet"] < price:
         return False, f"❌ You need **{price:,}** coins but only have **{bal['wallet']:,}** in your wallet.", None
@@ -1664,7 +1649,6 @@ def buy_shop_item(user_id: int, guild_id: int, item_id: int):
 
 def get_inventory(user_id: int):
     """Returns a list of (name, quantity, description, role_id) for a user's items."""
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "SELECT si.name, inv.quantity, si.description, si.role_id "
@@ -1770,7 +1754,6 @@ def resolve_item_key(name: str):
 
 
 def get_global_item_qty(user_id, item_key: str) -> int:
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "SELECT quantity FROM global_inventory WHERE user_id = %s AND item_key = %s",
@@ -1787,7 +1770,6 @@ def has_global_item(user_id, item_key: str) -> bool:
 
 
 def add_global_item(user_id, item_key: str, amount: int = 1):
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "INSERT INTO global_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s) "
@@ -1803,7 +1785,6 @@ def remove_global_item(user_id, item_key: str, amount: int = 1) -> bool:
     qty = get_global_item_qty(user_id, item_key)
     if qty < amount:
         return False
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "UPDATE global_inventory SET quantity = quantity - %s WHERE user_id = %s AND item_key = %s",
@@ -1816,7 +1797,6 @@ def remove_global_item(user_id, item_key: str, amount: int = 1) -> bool:
 
 
 def get_global_inventory(user_id):
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "SELECT item_key, quantity FROM global_inventory WHERE user_id = %s AND quantity > 0 ORDER BY item_key",
@@ -1829,7 +1809,6 @@ def get_global_inventory(user_id):
 
 
 def get_user_effects(user_id):
-    user_id = resolve_uid(user_id)
     conn, cur = get_db()
     cur.execute(
         "SELECT lucky_stacks, cd_boost_until, kiragpt_reply_count FROM user_effects WHERE user_id = %s",
@@ -1852,7 +1831,6 @@ def get_user_effects(user_id):
 
 def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
     current = get_user_effects(user_id)
-    user_id = resolve_uid(user_id)
     stacks = current["lucky_stacks"] if lucky_stacks is None else lucky_stacks
     until = current["cd_boost_until"] if cd_boost_until is None else cd_boost_until
     conn, cur = get_db()
@@ -1872,7 +1850,7 @@ def get_kiragpt_reply_count(user_id) -> int:
 
 
 def increment_kiragpt_reply_count(user_id):
-    uid = resolve_uid(user_id)
+    uid = user_id
     get_user_effects(user_id)  # ensures a row exists
     conn, cur = get_db()
     cur.execute(
@@ -1902,7 +1880,6 @@ def buy_global_item(user_id, item_key: str):
     item = GLOBAL_ITEMS[item_key]
     if not item.get("consumable") and not item.get("stackable") and has_global_item(user_id, item_key):
         return False, f"❌ You already own a **{item['name']}** — no need to buy another."
-    user_id = resolve_uid(user_id)
     bal = get_balance(user_id)
     if bal["wallet"] < item["price"]:
         return False, f"❌ You need **{item['price']:,}** coins but only have **{bal['wallet']:,}** in your wallet."
@@ -1971,8 +1948,6 @@ def do_rob(robber_id: int, victim_id: int):
         secs = int(remaining % 60)
         return f"⏳ You're laying low. Try robbing again in **{mins}m {secs}s**."
 
-    robber_id = resolve_uid(robber_id)
-    victim_id = resolve_uid(victim_id)
     victim_bal = get_balance(victim_id)
     robber_bal = get_balance(robber_id)
 
@@ -3208,7 +3183,7 @@ async def on_message(message: discord.Message):
     # XP / leveling
     if message.guild is not None:
         try:
-            new_level = add_message_xp(did(message.author.id), message.guild.id)
+            new_level = add_message_xp(did(message.author.id))
             if new_level is not None:
                 level_up_msg = (
                     f"🎉 {message.author.mention} leveled up to **level {new_level}**! "
