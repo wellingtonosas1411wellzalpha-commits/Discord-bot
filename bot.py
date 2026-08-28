@@ -25,18 +25,55 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.2"
+BOT_VERSION = "1.8.3"
 
-# Update this alongside BOT_VERSION whenever you ship a change — shown by
-# the .updateinfo / /updateinfo command so users can see what's new.
-LATEST_UPDATE_INFO = {
-    "version": BOT_VERSION,
-    "date": "2026-08-28",
-    "changes": [
-        "Added Guard — blocks the next robbery against you, then is used up",
-        "Guard costs 50,000 coins and is stackable (.buy guard)",
-    ],
-}
+# Newest version first. Update this on every change.
+VERSION_HISTORY = [
+    {
+        "version": "1.8.3",
+        "date": "2026-08-28",
+        "changes": [
+            "Added a version history log (.versions)",
+        ],
+    },
+    {
+        "version": "1.8.2",
+        "date": "2026-08-28",
+        "changes": [
+            "Added Guard — blocks the next robbery against you, then is used up",
+            "Guard costs 50,000 coins and is stackable",
+        ],
+    },
+    {
+        "version": "1.8.1",
+        "date": "2026-08-27",
+        "changes": [
+            "Lucky Potion now also affects roulette, slot, mines, and blackjack",
+            "KiraGPT's 50-reply limit now persists across restarts",
+            "Buying a Gun/Fishing Rod/Shovel you already own is now blocked",
+            "Removed unused leftover shop-admin code",
+        ],
+    },
+    {
+        "version": "1.8.0",
+        "date": "2026-08-27",
+        "changes": [
+            "Global shop items: Vx, V9, Lucky Potion, Gun, Fishing Rod, Shovel",
+            "Fish / dig / rob require the matching tool",
+            "Short spaced menu + .help <command>",
+        ],
+    },
+    {
+        "version": "1.7.0",
+        "date": "2026-08-22",
+        "changes": [
+            "Shop and inventory",
+            "Blackjack, rob, level role rewards",
+        ],
+    },
+]
+
+LATEST_UPDATE_INFO = VERSION_HISTORY[0]
 psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
@@ -633,6 +670,7 @@ COMMAND_HELP = {
     "userinfo": "Get member info.\nUsage: `.userinfo [user]`",
     "poll": "Create a yes/no poll.\nUsage: `.poll <question>`",
     "updateinfo": "See the latest bot update notes.\nUsage: `.updateinfo`",
+    "versions": "See the full version history log.\nUsage: `.versions`",
     "bal": "Check wallet and bank balance.\nUsage: `.bal`",
     "daily": "Claim daily coins (24h cooldown).\nUsage: `.daily`",
     "work": "Work a job for coins (1h cooldown).\nUsage: `.work`",
@@ -686,6 +724,7 @@ def build_menu_text():
         "┃ • userinfo\n"
         "┃ • poll\n"
         "┃ • updateinfo\n"
+        "┃ • versions\n"
         "┃\n"
         "┃ ── Economy ──\n"
         "┃ • bal\n"
@@ -2252,7 +2291,7 @@ async def handle_kiragpt_message(user, prompt: str, send_func):
         await send_func("😊 **Normal mode** activated. I'll be nice and helpful.")
         return
 
-    if not prompt.strip() and not files:
+    if not prompt.strip():
         await send_func(
             "❌ Usage:\n"
             "`.kiragpt <message>`\n"
@@ -2450,7 +2489,7 @@ async def menu_prefix(ctx: commands.Context):
 def build_updateinfo_text() -> str:
     info = LATEST_UPDATE_INFO
     lines = [
-        "╭━━━〔 🆕 ʟᴀᴛᴇsᴛ ᴜᴘᴅᴀᴛᴇ 〕━━━⬣",
+        "╭━━━〔 🆕 Latest Update 〕━━━⬣",
         "┃",
         f"┃ Version: **{info['version']}**",
         f"┃ Date: {info['date']}",
@@ -2459,6 +2498,23 @@ def build_updateinfo_text() -> str:
     ]
     for change in info["changes"]:
         lines.append(f"┃ • {change}")
+    lines.append("┃")
+    lines.append("┃ Full log: `.versions`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+def build_version_history_text() -> str:
+    lines = [
+        "╭━━━〔 📜 Version History 〕━━━⬣",
+        f"┃ Current: **{BOT_VERSION}**",
+        "┃",
+    ]
+    for entry in VERSION_HISTORY:
+        lines.append(f"┃ **v{entry['version']}** — {entry['date']}")
+        for change in entry["changes"]:
+            lines.append(f"┃  • {change}")
+        lines.append("┃")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
 
@@ -2471,6 +2527,16 @@ async def updateinfo(interaction: discord.Interaction):
 @bot.command(name="updateinfo", aliases=["changelog"])
 async def updateinfo_prefix(ctx: commands.Context):
     await ctx.reply(build_updateinfo_text())
+
+
+@bot.tree.command(name="versions", description="See the full version history log")
+async def versions(interaction: discord.Interaction):
+    await interaction.response.send_message(build_version_history_text())
+
+
+@bot.command(name="versions", aliases=["versionhistory", "history"])
+async def versions_prefix(ctx: commands.Context):
+    await ctx.reply(build_version_history_text())
 
 
 # ---------- Gambling ----------
