@@ -25,18 +25,16 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.1"
+BOT_VERSION = "1.8.2"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
 LATEST_UPDATE_INFO = {
     "version": BOT_VERSION,
-    "date": "2026-08-27",
+    "date": "2026-08-28",
     "changes": [
-        "Lucky Potion now also affects roulette, slot, mines, and blackjack",
-        "KiraGPT's 50-reply limit now persists across restarts (was resetting on every redeploy)",
-        "Buying a Gun/Fishing Rod/Shovel you already own is now blocked",
-        "Removed unused leftover shop-admin code",
+        "Added Guard — blocks the next robbery against you, then is used up",
+        "Guard costs 50,000 coins and is stackable (.buy guard)",
     ],
 }
 psutil.cpu_percent(interval=None)  # prime the reading
@@ -1704,6 +1702,13 @@ GLOBAL_ITEMS = {
         "description": "Required to use .dig",
         "consumable": False,
     },
+    "guard": {
+        "name": "Guard",
+        "price": 50000,
+        "description": "Blocks the next robbery against you, then is used up",
+        "consumable": False,
+        "stackable": True,
+    },
 }
 
 ITEM_ALIASES = {
@@ -1717,6 +1722,7 @@ ITEM_ALIASES = {
     "rod": "fishing_rod",
     "fishrod": "fishing_rod",
     "shovel": "shovel",
+    "guard": "guard",
 }
 
 
@@ -1855,7 +1861,7 @@ def luck_chance(base: float, user_id) -> float:
 
 def buy_global_item(user_id, item_key: str):
     item = GLOBAL_ITEMS[item_key]
-    if not item.get("consumable") and has_global_item(user_id, item_key):
+    if not item.get("consumable") and not item.get("stackable") and has_global_item(user_id, item_key):
         return False, f"❌ You already own a **{item['name']}** — no need to buy another."
     user_id = resolve_uid(user_id)
     bal = get_balance(user_id)
@@ -1933,6 +1939,10 @@ def do_rob(robber_id: int, victim_id: int):
 
     if victim_bal["wallet"] < 100:
         return "❌ That person doesn't have enough in their wallet to be worth robbing."
+
+    if has_global_item(victim_id, "guard"):
+        remove_global_item(victim_id, "guard", 1)
+        return "🛡️ They had a **Guard**. The robbery was blocked, and their Guard was used up."
 
     if random.random() < luck_chance(ROB_SUCCESS_CHANCE, robber_id):
         stolen = int(victim_bal["wallet"] * random.uniform(0.05, ROB_MAX_STEAL_PERCENT))
