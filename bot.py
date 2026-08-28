@@ -25,7 +25,7 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.9.0"
+BOT_VERSION = "1.8.1"
 
 # Update this alongside BOT_VERSION whenever you ship a change — shown by
 # the .updateinfo / /updateinfo command so users can see what's new.
@@ -327,41 +327,6 @@ def init_db():
     db_pool.putconn(conn)
 
 
-def migrate_db():
-    """One-time migration: convert an existing bigint user_id column to text
-    so account data stays consistent."""
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS balances (
-                user_id TEXT PRIMARY KEY,
-                wallet BIGINT NOT NULL,
-                bank BIGINT NOT NULL,
-                limit_amt BIGINT NOT NULL
-            )
-        """)
-        conn.commit()
-        try:
-            cur.execute("ALTER TABLE balances ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        try:
-            cur.execute("""
-                UPDATE balances SET user_id = 'discord:' || user_id
-                WHERE user_id !~ '^(discord|whatsapp):'
-            """)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        cur.close()
-        conn.close()
-        print("Database migration check complete.")
-    except Exception as e:
-        print(f"Database migration skipped/failed: {e}")
-
-
 def resolve_uid(user_id: str) -> str:
     """If this ID has been linked to another account, return the canonical ID
     for account linking support."""
@@ -371,26 +336,6 @@ def resolve_uid(user_id: str) -> str:
     cur.close()
     release_db(conn)
     return row[0] if row else user_id
-
-
-def link_accounts(alias_id: str, canonical_id: str):
-    conn, cur = get_db()
-    cur.execute(
-        "INSERT INTO account_links (alias_id, canonical_id) VALUES (%s, %s) "
-        "ON CONFLICT (alias_id) DO UPDATE SET canonical_id = EXCLUDED.canonical_id",
-        (alias_id, canonical_id),
-    )
-    conn.commit()
-    cur.close()
-    release_db(conn)
-
-
-def unlink_account(alias_id: str):
-    conn, cur = get_db()
-    cur.execute("DELETE FROM account_links WHERE alias_id = %s", (alias_id,))
-    conn.commit()
-    cur.close()
-    release_db(conn)
 
 
 def get_balance(user_id: int):
@@ -470,17 +415,6 @@ def set_level_role(guild_id: int, level: int, role_id: int):
         "INSERT INTO level_roles (guild_id, level, role_id) VALUES (%s, %s, %s) "
         "ON CONFLICT (guild_id, level) DO UPDATE SET role_id = EXCLUDED.role_id",
         (str(guild_id), level, str(role_id)),
-    )
-    conn.commit()
-    cur.close()
-    release_db(conn)
-
-
-def remove_level_role(guild_id: int, level: int):
-    conn, cur = get_db()
-    cur.execute(
-        "DELETE FROM level_roles WHERE guild_id = %s AND level = %s",
-        (str(guild_id), level),
     )
     conn.commit()
     cur.close()
@@ -787,8 +721,6 @@ def build_menu_text():
         "┃ • afk\n"
         "┃ • cds\n"
         "┃ • donate\n"
-        "┃ • link\n"
-        "┃ • unlink\n"
         "┃ • help\n"
         "┃\n"
         "┃ ── Owner ──\n"
@@ -2274,8 +2206,6 @@ def get_kiragpt_session(user_id: str):
             "active": False,
             "history": [],
             "mode": "normal",          # normal / wild / ai
-            "pending_file": None,
-            "pending_filename": None,
         }
     return kiragpt_sessions[user_id]
 
@@ -2283,11 +2213,10 @@ def get_kiragpt_session(user_id: str):
 MAX_REPLIES_FOR_NORMAL_USERS = 50
 
 
-async def handle_kiragpt_message(user, prompt: str, send_func, files: list = None):
+async def handle_kiragpt_message(user, prompt: str, send_func):
     user_id = did(user.id)
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
-    files = files or []
 
     # Rate limit for non-admins
     if not is_creator:
@@ -2323,12 +2252,6 @@ async def handle_kiragpt_message(user, prompt: str, send_func, files: list = Non
         return
 
     mode = session.get("mode", "normal")
-
-    # Simple file support (first file only, truncated if needed)
-    file_extra = ""
-    if files:
-        # For now we keep it simple; full large-file "which part" can be re-added later if needed
-        pass
 
     reply_text = await generate_code_response(
         prompt, mode=mode, is_creator=is_creator, history=session["history"]
