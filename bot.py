@@ -14,6 +14,7 @@ from flask import Flask
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.ext import tasks
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,10 +26,23 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.8.4"
+BOT_VERSION = "1.9.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.9.0",
+        "date": "2026-08-29",
+        "changes": [
+            "Added jobs & salary: .setjob pays out automatically every 6h, even offline, taxed into the server treasury",
+            "Added bank interest: your .bank balance now earns 2% daily",
+            "Added pets: .buypet, .feedpet, .collectpet, .pet — adopt a pet that earns passive income while fed",
+            "Added marriage: .marry, .marryaccept, .divorce, .partner",
+            "Added achievements: .achievements tracks milestones like First Blood, Jackpot, Veteran, and more",
+            "Added a player market: .sell, .market, .buylisting, .cancellisting — trade global items with other players (5% tax)",
+            "Added .treasury to see how much tax has been collected",
+        ],
+    },
     {
         "version": "1.8.4",
         "date": "2026-08-29",
@@ -252,6 +266,34 @@ ROB_SUCCESS_CHANCE = 0.45
 ROB_MAX_STEAL_PERCENT = 0.25
 ROB_FAIL_PENALTY_PERCENT = 0.10
 
+TAX_RATE = 0.10  # skimmed off salary and successful robs, feeds the server treasury
+TREASURY_META_KEY = "treasury_balance"
+
+SALARY_INTERVAL_HOURS = 6
+JOBS = {
+    "intern": {"label": "Intern", "pay": 2000},
+    "developer": {"label": "Software Developer", "pay": 5000},
+    "moderator": {"label": "Discord Moderator", "pay": 4000},
+    "streamer": {"label": "Streamer", "pay": 6000},
+    "chef": {"label": "Chef", "pay": 3500},
+    "pilot": {"label": "Pilot", "pay": 8000},
+}
+
+MARKET_TAX_RATE = 0.05  # market sales are taxed lightly too
+
+PET_TYPES = {
+    "dog": {"name": "Dog", "price": 20000, "hourly_income": 300},
+    "cat": {"name": "Cat", "price": 20000, "hourly_income": 300},
+    "dragon": {"name": "Dragon", "price": 200000, "hourly_income": 2500},
+    "hamster": {"name": "Hamster", "price": 5000, "hourly_income": 80},
+}
+PET_FEED_COST = 500
+PET_HUNGER_PER_FEED = 40
+PET_HUNGER_DECAY_PER_HOUR = 5  # hunger lost per hour since last feeding
+PET_STARVING_THRESHOLD = 20  # below this, pet stops earning until fed
+
+BANK_INTEREST_RATE = 0.02  # daily interest on bank balance
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -358,6 +400,48 @@ def init_db():
         )
     """)
     cur.execute("ALTER TABLE user_effects ADD COLUMN IF NOT EXISTS kiragpt_reply_count INTEGER NOT NULL DEFAULT 0")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS jobs (
+            user_id TEXT PRIMARY KEY,
+            job TEXT NOT NULL,
+            last_salary TIMESTAMPTZ
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS marriages (
+            user_id TEXT PRIMARY KEY,
+            partner_id TEXT NOT NULL,
+            married_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pets (
+            user_id TEXT PRIMARY KEY,
+            pet_type TEXT NOT NULL,
+            pet_name TEXT NOT NULL,
+            hunger INTEGER NOT NULL DEFAULT 100,
+            last_fed TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_collected TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS achievements (
+            user_id TEXT NOT NULL,
+            achievement_key TEXT NOT NULL,
+            earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, achievement_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS market_listings (
+            listing_id SERIAL PRIMARY KEY,
+            seller_id TEXT NOT NULL,
+            item_key TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            price BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
     conn.commit()
     cur.close()
     db_pool.putconn(conn)
@@ -584,15 +668,42 @@ def set_meta(key: str, value: str):
     release_db(conn)
 
 
+def get_treasury() -> int:
+    value = get_meta(TREASURY_META_KEY)
+    return int(value) if value else 0
+
+
+def add_to_treasury(amount: int):
+    if amount <= 0:
+        return
+    set_meta(TREASURY_META_KEY, str(get_treasury() + amount))
+
+
+def apply_tax(amount: int, rate: float = TAX_RATE):
+    """Splits an amount into (net, tax). The tax portion is added to the
+    server treasury. Use this on salary and successful robs."""
+    if amount <= 0:
+        return amount, 0
+    tax = int(amount * rate)
+    net = amount - tax
+    add_to_treasury(tax)
+    return net, tax
+
+
+
 def build_balance_text(user_id: int):
     bal = get_balance(user_id)
     total = bal["wallet"] + bal["bank"]
+    achievement_line = ""
+    if total >= 1_000_000 and grant_achievement(user_id, "high_roller"):
+        achievement_line = f"┃\n┃ 🏅 Achievement unlocked: **{ACHIEVEMENTS['high_roller']['label']}**\n"
     return (
         "╭━━━〔 💳 ᴀᴄᴄᴏᴜɴᴛ ʙᴀʟᴀɴᴄᴇ 〕━━━⬣\n"
         f"┃ 💰 ᴡᴀʟʟᴇᴛ : [ ${bal['wallet']:,} ]\n"
         f"┃ 🏦 ʙᴀɴᴋ   : [ ${bal['bank']:,} ]\n"
         "┃\n"
         f"┃ 💠 ᴛᴏᴛᴀʟ  : [ ${total:,} ]\n"
+        f"{achievement_line}"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
@@ -684,6 +795,23 @@ COMMAND_HELP = {
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
+    "setjob": "Pick a persistent job that pays a salary automatically, even offline.\nUsage: `.setjob <job>`",
+    "myjob": "See your current job and salary.\nUsage: `.myjob`",
+    "jobs": "List available jobs and their pay.\nUsage: `.jobs`",
+    "treasury": "See the server treasury, funded by taxes.\nUsage: `.treasury`",
+    "buypet": "Adopt a pet that earns passive income.\nUsage: `.buypet <type> <name>`",
+    "feedpet": "Feed your pet so it keeps earning.\nUsage: `.feedpet`",
+    "collectpet": "Collect the coins your pet has earned.\nUsage: `.collectpet`",
+    "pet": "See your (or someone else's) pet.\nUsage: `.pet [user]`",
+    "marry": "Propose marriage to another user.\nUsage: `.marry @user`",
+    "marryaccept": "Accept a pending marriage proposal.\nUsage: `.marryaccept`",
+    "divorce": "End your marriage.\nUsage: `.divorce`",
+    "partner": "See who someone is married to.\nUsage: `.partner [user]`",
+    "achievements": "See your (or someone else's) achievements.\nUsage: `.achievements [user]`",
+    "sell": "List an item for sale on the player market (5% tax on sale).\nUsage: `.sell <item> <quantity> <price>`",
+    "market": "Browse the player market.\nUsage: `.market`",
+    "buylisting": "Buy a listing from the player market.\nUsage: `.buylisting <id>`",
+    "cancellisting": "Cancel your own market listing.\nUsage: `.cancellisting <id>`",
 }
 
 
@@ -725,6 +853,33 @@ def build_menu_text():
         "┃ • beg\n"
         "┃ • dig\n"
         "┃ • rob\n"
+        "┃\n"
+        "┃ ── Jobs & Salary ──\n"
+        "┃ • jobs\n"
+        "┃ • setjob\n"
+        "┃ • myjob\n"
+        "┃ • treasury\n"
+        "┃\n"
+        "┃ ── Pets ──\n"
+        "┃ • buypet\n"
+        "┃ • feedpet\n"
+        "┃ • collectpet\n"
+        "┃ • pet\n"
+        "┃\n"
+        "┃ ── Marriage ──\n"
+        "┃ • marry\n"
+        "┃ • marryaccept\n"
+        "┃ • divorce\n"
+        "┃ • partner\n"
+        "┃\n"
+        "┃ ── Achievements ──\n"
+        "┃ • achievements\n"
+        "┃\n"
+        "┃ ── Market ──\n"
+        "┃ • sell\n"
+        "┃ • market\n"
+        "┃ • buylisting\n"
+        "┃ • cancellisting\n"
         "┃\n"
         "┃ ── Shop ──\n"
         "┃ • shop\n"
@@ -978,6 +1133,64 @@ def do_work(user_id: int):
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
+
+
+# ---------- Jobs & Salary ----------
+# A persistent job (separate from the one-off flavor text in .work) that
+# pays out automatically on a timer via the salary_payout_loop task below,
+# even while you're offline. Salary is taxed; the tax feeds the treasury.
+
+def set_job(user_id, job_key: str):
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO jobs (user_id, job) VALUES (%s, %s) "
+        "ON CONFLICT (user_id) DO UPDATE SET job = EXCLUDED.job",
+        (user_id, job_key),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def get_job(user_id):
+    conn, cur = get_db()
+    cur.execute("SELECT job FROM jobs WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row[0] if row else None
+
+
+def get_all_jobholders():
+    """Returns a list of (user_id, job) for everyone with a job set."""
+    conn, cur = get_db()
+    cur.execute("SELECT user_id, job FROM jobs")
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def build_myjob_text(user_id) -> str:
+    job_key = get_job(user_id)
+    if not job_key:
+        options = ", ".join(f"`{k}`" for k in JOBS)
+        return f"❌ You don't have a job yet. Pick one with `.setjob <job>`.\nOptions: {options}"
+    info = JOBS[job_key]
+    return (
+        f"💼 You work as a **{info['label']}**\n"
+        f"💰 Salary: **${info['pay']:,}** every **{SALARY_INTERVAL_HOURS}h** (before tax)"
+    )
+
+
+def build_jobs_list_text() -> str:
+    lines = ["╭━━━〔 💼 ᴀᴠᴀɪʟᴀʙʟᴇ ᴊᴏʙs 〕━━━⬣", "┃"]
+    for key, info in JOBS.items():
+        lines.append(f"┃ `{key}` — {info['label']} — ${info['pay']:,}/{SALARY_INTERVAL_HOURS}h")
+    lines.append("┃")
+    lines.append("┃ Set yours with `.setjob <job>`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
 
 
 def get_leaderboard(limit: int = 10):
@@ -1325,9 +1538,12 @@ def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
         payout = int(bet * 2.5)
         bal = get_balance(user_id)
         update_balance(user_id, wallet=bal["wallet"] + payout)
+        result_line = f"🎉 Blackjack! You won **${payout:,}**!"
+        if grant_achievement(user_id, "blackjack_natural"):
+            result_line += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['blackjack_natural']['label']}**"
         return build_blackjack_text(
             game, reveal_dealer=True,
-            result_line=f"🎉 Blackjack! You won **${payout:,}**!",
+            result_line=result_line,
         )
 
     # Dealer draws until 17+
@@ -1446,10 +1662,16 @@ async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
         update_balance(user_id, wallet=new_bal["wallet"] + payout)
     final_bal = get_balance(user_id)
 
+    newly_earned = False
+    if max_count == 3:
+        newly_earned = grant_achievement(user_id, "jackpot")
+
     if payout > 0:
         footer = f"🎉 *YOU WON!* 🎉\nPayout: ${payout:,}\n\n💵 Wallet: ${final_bal['wallet']:,}"
     else:
         footer = f"💥 *YOU LOST!* 💥\nBetter luck next time.\n\n💵 Wallet: ${final_bal['wallet']:,}"
+    if newly_earned:
+        footer += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['jackpot']['label']}**"
 
     await edit_func(sent, build_slot_spin_text(spin_display, footer))
 
@@ -1933,6 +2155,401 @@ def build_shop_text(guild_id: int) -> str:
     return "\n".join(lines)
 
 
+# ---------- Achievements ----------
+
+ACHIEVEMENTS = {
+    "first_blood": {"label": "First Blood", "description": "Successfully rob someone for the first time."},
+    "jackpot": {"label": "Jackpot!", "description": "Hit the 3-of-a-kind jackpot on the slot machine."},
+    "blackjack_natural": {"label": "Natural 21", "description": "Draw a natural blackjack."},
+    "veteran": {"label": "Veteran", "description": "Reach level 20."},
+    "high_roller": {"label": "High Roller", "description": "Have 1,000,000 coins or more in total."},
+    "pet_owner": {"label": "Pet Owner", "description": "Adopt your first pet."},
+    "married": {"label": "Tied the Knot", "description": "Get married."},
+    "entrepreneur": {"label": "Entrepreneur", "description": "Sell an item on the market."},
+}
+
+
+def has_achievement(user_id, key: str) -> bool:
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT 1 FROM achievements WHERE user_id = %s AND achievement_key = %s",
+        (user_id, key),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row is not None
+
+
+def grant_achievement(user_id, key: str) -> bool:
+    """Awards an achievement if the user doesn't already have it.
+    Returns True if this call newly granted it, else False."""
+    if key not in ACHIEVEMENTS:
+        return False
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO achievements (user_id, achievement_key) VALUES (%s, %s) "
+        "ON CONFLICT (user_id, achievement_key) DO NOTHING",
+        (user_id, key),
+    )
+    granted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return granted
+
+
+def get_user_achievements(user_id):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT achievement_key FROM achievements WHERE user_id = %s ORDER BY earned_at",
+        (user_id,),
+    )
+    rows = [r[0] for r in cur.fetchall()]
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def build_achievements_text(display_name: str, user_id) -> str:
+    earned = set(get_user_achievements(user_id))
+    lines = [f"╭━━━〔 🏅 {display_name}'s ᴀᴄʜɪᴇᴠᴇᴍᴇɴᴛs 〕━━━⬣", "┃"]
+    for key, info in ACHIEVEMENTS.items():
+        mark = "✅" if key in earned else "⬜"
+        lines.append(f"┃ {mark} **{info['label']}** — {info['description']}")
+    lines.append("┃")
+    lines.append(f"┃ {len(earned)}/{len(ACHIEVEMENTS)} unlocked")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+# ---------- Pets ----------
+
+def get_pet(user_id):
+    """Returns the pet's live state (hunger decayed for elapsed time since
+    it was last fed), or None if the user has no pet."""
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT pet_type, pet_name, hunger, last_fed, last_collected FROM pets WHERE user_id = %s",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    if row is None:
+        return None
+    pet_type, pet_name, hunger, last_fed, last_collected = row
+    elapsed_hours = max(0.0, (time.time() - last_fed.timestamp()) / 3600)
+    current_hunger = max(0, hunger - int(elapsed_hours * PET_HUNGER_DECAY_PER_HOUR))
+    return {
+        "pet_type": pet_type,
+        "pet_name": pet_name,
+        "hunger": current_hunger,
+        "last_fed": last_fed,
+        "last_collected": last_collected,
+    }
+
+
+def buy_pet(user_id, pet_type: str, pet_name: str):
+    pet_type = pet_type.strip().lower()
+    info = PET_TYPES.get(pet_type)
+    if not info:
+        options = ", ".join(f"`{k}`" for k in PET_TYPES)
+        return False, f"❌ Unknown pet type. Choose from: {options}."
+    if get_pet(user_id) is not None:
+        return False, "❌ You already have a pet. You can only have one at a time."
+    if not pet_name.strip():
+        return False, "❌ Give your pet a name: `.buypet <type> <name>`."
+
+    bal = get_balance(user_id)
+    if bal["wallet"] < info["price"]:
+        return False, f"❌ You need **{info['price']:,}** coins to adopt a **{info['name']}**."
+    update_balance(user_id, wallet=bal["wallet"] - info["price"])
+
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO pets (user_id, pet_type, pet_name, hunger, last_fed, last_collected) "
+        "VALUES (%s, %s, %s, 100, NOW(), NOW())",
+        (user_id, pet_type, pet_name.strip()[:32]),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    newly_earned = grant_achievement(user_id, "pet_owner")
+    text = f"🐾 You adopted a **{info['name']}** named **{pet_name.strip()[:32]}**!"
+    if newly_earned:
+        text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['pet_owner']['label']}**"
+    return True, text
+
+
+def feed_pet(user_id):
+    pet = get_pet(user_id)
+    if pet is None:
+        return "❌ You don't have a pet yet. Adopt one with `.buypet <type> <name>`."
+    bal = get_balance(user_id)
+    if bal["wallet"] < PET_FEED_COST:
+        return f"❌ Feeding costs **{PET_FEED_COST:,}** coins — you don't have enough."
+    update_balance(user_id, wallet=bal["wallet"] - PET_FEED_COST)
+
+    new_hunger = min(100, pet["hunger"] + PET_HUNGER_PER_FEED)
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE pets SET hunger = %s, last_fed = NOW() WHERE user_id = %s",
+        (new_hunger, user_id),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return f"🍖 You fed **{pet['pet_name']}**! Hunger is now **{new_hunger}/100**."
+
+
+def collect_pet_income(user_id):
+    pet = get_pet(user_id)
+    if pet is None:
+        return "❌ You don't have a pet yet. Adopt one with `.buypet <type> <name>`."
+    if pet["hunger"] < PET_STARVING_THRESHOLD:
+        return f"😿 **{pet['pet_name']}** is too hungry to work. Feed it with `.feedpet` first."
+
+    info = PET_TYPES[pet["pet_type"]]
+    elapsed_hours = max(0.0, (time.time() - pet["last_collected"].timestamp()) / 3600)
+    elapsed_hours = min(elapsed_hours, 48)  # cap a single collection window
+    earned = int(info["hourly_income"] * elapsed_hours)
+    if earned <= 0:
+        return f"⏳ **{pet['pet_name']}** hasn't earned anything new yet — check back later."
+
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + earned)
+    conn, cur = get_db()
+    cur.execute("UPDATE pets SET last_collected = NOW() WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return f"💰 **{pet['pet_name']}** earned you **{earned:,}** coins while it worked!"
+
+
+def build_pet_text(display_name: str, user_id) -> str:
+    pet = get_pet(user_id)
+    if pet is None:
+        options = ", ".join(f"`{k}` ({v['name']}, {v['price']:,} coins)" for k, v in PET_TYPES.items())
+        return f"🐾 **{display_name}** doesn't have a pet.\nAdopt one with `.buypet <type> <name>`.\nTypes: {options}"
+    info = PET_TYPES[pet["pet_type"]]
+    status = "🟢 Well fed" if pet["hunger"] >= PET_STARVING_THRESHOLD else "🔴 Starving (not earning)"
+    return (
+        f"╭━━━〔 🐾 {display_name}'s ᴘᴇᴛ 〕━━━⬣\n"
+        f"┃ Name: {pet['pet_name']} ({info['name']})\n"
+        f"┃ Hunger: {pet['hunger']}/100 — {status}\n"
+        f"┃ Income: {info['hourly_income']:,}/hour while fed\n"
+        f"┃\n"
+        f"┃ `.feedpet` to feed • `.collectpet` to claim earnings\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+# ---------- Marriage ----------
+
+marriage_proposals = {}  # target_id -> proposer_id (in-memory, ephemeral by design)
+
+
+def get_partner(user_id):
+    conn, cur = get_db()
+    cur.execute("SELECT partner_id FROM marriages WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row[0] if row else None
+
+
+def propose_marriage(proposer_id, target_id):
+    if proposer_id == target_id:
+        return "❌ You can't marry yourself."
+    if get_partner(proposer_id) is not None:
+        return "❌ You're already married. `.divorce` first if you want to remarry."
+    if get_partner(target_id) is not None:
+        return "❌ That person is already married."
+    marriage_proposals[target_id] = proposer_id
+    return "💍 Proposal sent! They can accept with `.marryaccept`."
+
+
+def accept_marriage(user_id):
+    proposer_id = marriage_proposals.get(user_id)
+    if not proposer_id:
+        return "❌ You don't have a pending proposal."
+    del marriage_proposals[user_id]
+    if get_partner(proposer_id) is not None or get_partner(user_id) is not None:
+        return "❌ One of you got married to someone else in the meantime."
+
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO marriages (user_id, partner_id) VALUES (%s, %s), (%s, %s)",
+        (proposer_id, user_id, user_id, proposer_id),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    newly_a = grant_achievement(proposer_id, "married")
+    newly_b = grant_achievement(user_id, "married")
+    text = "💒 Congratulations, you're now married!"
+    if newly_a or newly_b:
+        text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['married']['label']}**"
+    return text
+
+
+def do_divorce(user_id):
+    partner_id = get_partner(user_id)
+    if partner_id is None:
+        return "❌ You're not married."
+    conn, cur = get_db()
+    cur.execute(
+        "DELETE FROM marriages WHERE (user_id = %s AND partner_id = %s) OR (user_id = %s AND partner_id = %s)",
+        (user_id, partner_id, partner_id, user_id),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return "💔 You're now divorced."
+
+
+# ---------- Market ----------
+
+def create_listing(seller_id, item_name_raw: str, quantity_str: str, price_str: str):
+    try:
+        quantity = int(quantity_str)
+        price = int(price_str.replace(",", "").replace("$", ""))
+    except ValueError:
+        return False, "❌ Usage: `.sell <item> <quantity> <price>`"
+    if quantity <= 0 or price <= 0:
+        return False, "❌ Quantity and price must both be greater than 0."
+
+    key = resolve_item_key(item_name_raw)
+    if not key:
+        return False, "❌ You can only list global items (vx, v9, lucky, gun, fishing rod, shovel, guard)."
+    item = GLOBAL_ITEMS[key]
+    if not remove_global_item(seller_id, key, quantity):
+        return False, f"❌ You don't have {quantity}x **{item['name']}**."
+
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO market_listings (seller_id, item_key, quantity, price) "
+        "VALUES (%s, %s, %s, %s) RETURNING listing_id",
+        (seller_id, key, quantity, price),
+    )
+    listing_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    newly_earned = grant_achievement(seller_id, "entrepreneur")
+    text = f"✅ Listed **{quantity}x {item['name']}** at **{price:,}** coins each. Listing ID: **#{listing_id}**"
+    if newly_earned:
+        text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['entrepreneur']['label']}**"
+    return True, text
+
+
+def get_listings():
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT listing_id, seller_id, item_key, quantity, price FROM market_listings ORDER BY created_at"
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def build_market_text() -> str:
+    rows = get_listings()
+    if not rows:
+        return "📭 No active market listings. List one with `.sell <item> <quantity> <price>`."
+    lines = ["╭━━━〔 🏪 ᴘʟᴀʏᴇʀ ᴍᴀʀᴋᴇᴛ 〕━━━⬣"]
+    for listing_id, seller_id, item_key, quantity, price in rows:
+        name = GLOBAL_ITEMS.get(item_key, {}).get("name", item_key)
+        lines.append(f"┃ **#{listing_id}** {name} x{quantity} — {price:,} coins each")
+    lines.append("┃")
+    lines.append("┃ Buy with `.buylisting <id>` • Cancel your own with `.cancellisting <id>`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+def buy_listing(buyer_id, listing_id_str: str):
+    try:
+        listing_id = int(listing_id_str)
+    except ValueError:
+        return "❌ Usage: `.buylisting <id>`"
+
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT seller_id, item_key, quantity, price FROM market_listings WHERE listing_id = %s",
+        (listing_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.close()
+        release_db(conn)
+        return "❌ That listing doesn't exist — it may already be sold or cancelled."
+    seller_id, item_key, quantity, price = row
+    if seller_id == buyer_id:
+        cur.close()
+        release_db(conn)
+        return "❌ You can't buy your own listing. Cancel it instead with `.cancellisting`."
+
+    total = price * quantity
+    bal = get_balance(buyer_id)
+    if bal["wallet"] < total:
+        cur.close()
+        release_db(conn)
+        return f"❌ You need **{total:,}** coins but only have **{bal['wallet']:,}**."
+
+    cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
+    if cur.rowcount == 0:
+        conn.rollback()
+        cur.close()
+        release_db(conn)
+        return "❌ That listing was just bought by someone else."
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+    update_balance(buyer_id, wallet=bal["wallet"] - total)
+    net, tax = apply_tax(total, rate=MARKET_TAX_RATE)
+    seller_bal = get_balance(seller_id)
+    update_balance(seller_id, wallet=seller_bal["wallet"] + net)
+    add_global_item(buyer_id, item_key, quantity)
+
+    item_name = GLOBAL_ITEMS.get(item_key, {}).get("name", item_key)
+    return f"✅ Bought **{quantity}x {item_name}** for **{total:,}** coins!"
+
+
+def cancel_listing(user_id, listing_id_str: str):
+    try:
+        listing_id = int(listing_id_str)
+    except ValueError:
+        return "❌ Usage: `.cancellisting <id>`"
+
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT seller_id, item_key, quantity FROM market_listings WHERE listing_id = %s",
+        (listing_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.close()
+        release_db(conn)
+        return "❌ That listing doesn't exist."
+    seller_id, item_key, quantity = row
+    if seller_id != user_id:
+        cur.close()
+        release_db(conn)
+        return "❌ That's not your listing."
+    cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    add_global_item(user_id, item_key, quantity)
+    return "✅ Listing cancelled. Your items were returned."
+
+
 # ---------- Rob ----------
 
 def do_rob(robber_id: int, victim_id: int):
@@ -1961,9 +2578,14 @@ def do_rob(robber_id: int, victim_id: int):
     if random.random() < luck_chance(ROB_SUCCESS_CHANCE, robber_id):
         stolen = int(victim_bal["wallet"] * random.uniform(0.05, ROB_MAX_STEAL_PERCENT))
         stolen = max(stolen, 1)
+        net, tax = apply_tax(stolen)
         update_balance(victim_id, wallet=victim_bal["wallet"] - stolen)
-        update_balance(robber_id, wallet=robber_bal["wallet"] + stolen)
-        return f"💰 You successfully robbed **{stolen:,}** coins!"
+        update_balance(robber_id, wallet=robber_bal["wallet"] + net)
+        newly_earned = grant_achievement(robber_id, "first_blood")
+        text = f"💰 You successfully robbed **{stolen:,}** coins! (Tax: {tax:,} → treasury. You keep **{net:,}**.)"
+        if newly_earned:
+            text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['first_blood']['label']}**"
+        return text
     else:
         penalty = int(robber_bal["wallet"] * ROB_FAIL_PENALTY_PERCENT)
         penalty = min(penalty, robber_bal["wallet"])
@@ -1972,9 +2594,53 @@ def do_rob(robber_id: int, victim_id: int):
 
 
 
+@tasks.loop(hours=1)
+async def salary_payout_loop():
+    """Checks hourly; pays out each jobholder's salary once
+    SALARY_INTERVAL_HOURS have passed since their last payout (or since they
+    set the job, if never paid). Salary is taxed on the way in — the tax
+    feeds the server treasury."""
+    conn, cur = get_db()
+    cur.execute("SELECT user_id, job, last_salary FROM jobs")
+    rows = cur.fetchall()
+    now = time.time()
+    for user_id, job_key, last_salary in rows:
+        info = JOBS.get(job_key)
+        if info is None:
+            continue
+        last_ts = last_salary.timestamp() if last_salary else 0
+        if now - last_ts < SALARY_INTERVAL_HOURS * 3600:
+            continue
+        net, tax = apply_tax(info["pay"])
+        bal = get_balance(user_id)
+        update_balance(user_id, wallet=bal["wallet"] + net)
+        cur.execute("UPDATE jobs SET last_salary = NOW() WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+@tasks.loop(hours=24)
+async def bank_interest_loop():
+    """Once a day, adds BANK_INTEREST_RATE interest to everyone's bank
+    balance. Untaxed — rewards saving instead of just hoarding wallet cash."""
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE balances SET bank = bank + FLOOR(bank * %s)::BIGINT WHERE bank > 0",
+        (BANK_INTEREST_RATE,),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    if not salary_payout_loop.is_running():
+        salary_payout_loop.start()
+    if not bank_interest_loop.is_running():
+        bank_interest_loop.start()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
@@ -2790,6 +3456,229 @@ async def work_prefix(ctx: commands.Context):
     await ctx.reply(do_work(did(ctx.author.id)))
 
 
+@bot.tree.command(name="setjob", description="Pick a persistent job that pays you a salary automatically")
+@app_commands.describe(job="Job key — see /jobs for the list")
+async def setjob(interaction: discord.Interaction, job: str):
+    key = job.strip().lower().replace(" ", "")
+    if key not in JOBS:
+        options = ", ".join(f"`{k}`" for k in JOBS)
+        await interaction.response.send_message(f"❌ Unknown job. Choose one of: {options}")
+        return
+    set_job(did(interaction.user.id), key)
+    await interaction.response.send_message(f"✅ You're now working as a **{JOBS[key]['label']}**!")
+
+
+@bot.command(name="setjob")
+async def setjob_prefix(ctx: commands.Context, *, job: str = ""):
+    key = job.strip().lower().replace(" ", "")
+    if key not in JOBS:
+        options = ", ".join(f"`{k}`" for k in JOBS)
+        await ctx.reply(f"❌ Unknown job. Choose one of: {options}")
+        return
+    set_job(did(ctx.author.id), key)
+    await ctx.reply(f"✅ You're now working as a **{JOBS[key]['label']}**!")
+
+
+@bot.tree.command(name="myjob", description="See your current job and salary")
+async def myjob(interaction: discord.Interaction):
+    await interaction.response.send_message(build_myjob_text(did(interaction.user.id)))
+
+
+@bot.command(name="myjob")
+async def myjob_prefix(ctx: commands.Context):
+    await ctx.reply(build_myjob_text(did(ctx.author.id)))
+
+
+@bot.tree.command(name="jobs", description="See all available jobs")
+async def jobs_cmd(interaction: discord.Interaction):
+    await interaction.response.send_message(build_jobs_list_text())
+
+
+@bot.command(name="jobs")
+async def jobs_prefix(ctx: commands.Context):
+    await ctx.reply(build_jobs_list_text())
+
+
+@bot.tree.command(name="treasury", description="See the server treasury (funded by taxes)")
+async def treasury(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary and rob taxes)")
+
+
+@bot.command(name="treasury")
+async def treasury_prefix(ctx: commands.Context):
+    await ctx.reply(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary and rob taxes)")
+
+
+# ---------- Pet commands ----------
+
+@bot.tree.command(name="buypet", description="Adopt a pet that earns passive income")
+@app_commands.describe(pet_type="dog, cat, dragon, or hamster", name="Your pet's name")
+async def buypet(interaction: discord.Interaction, pet_type: str, name: str):
+    success, message = buy_pet(did(interaction.user.id), pet_type, name)
+    await interaction.response.send_message(message)
+
+
+@bot.command(name="buypet")
+async def buypet_prefix(ctx: commands.Context, pet_type: str, *, name: str = ""):
+    success, message = buy_pet(did(ctx.author.id), pet_type, name)
+    await ctx.reply(message)
+
+
+@bot.tree.command(name="feedpet", description="Feed your pet")
+async def feedpet(interaction: discord.Interaction):
+    await interaction.response.send_message(feed_pet(did(interaction.user.id)))
+
+
+@bot.command(name="feedpet")
+async def feedpet_prefix(ctx: commands.Context):
+    await ctx.reply(feed_pet(did(ctx.author.id)))
+
+
+@bot.tree.command(name="collectpet", description="Collect the coins your pet has earned")
+async def collectpet(interaction: discord.Interaction):
+    await interaction.response.send_message(collect_pet_income(did(interaction.user.id)))
+
+
+@bot.command(name="collectpet")
+async def collectpet_prefix(ctx: commands.Context):
+    await ctx.reply(collect_pet_income(did(ctx.author.id)))
+
+
+@bot.tree.command(name="pet", description="See your (or someone else's) pet")
+@app_commands.describe(user="The user to check (leave blank for yourself)")
+async def pet(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    await interaction.response.send_message(build_pet_text(target.display_name, did(target.id)))
+
+
+@bot.command(name="pet")
+async def pet_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(build_pet_text(target.display_name, did(target.id)))
+
+
+# ---------- Marriage commands ----------
+
+@bot.tree.command(name="marry", description="Propose marriage to another user")
+@app_commands.describe(user="The user to propose to")
+async def marry(interaction: discord.Interaction, user: discord.User):
+    if user.bot:
+        await interaction.response.send_message("❌ You can't marry a bot.")
+        return
+    await interaction.response.send_message(propose_marriage(did(interaction.user.id), did(user.id)))
+
+
+@bot.command(name="marry")
+async def marry_prefix(ctx: commands.Context, user: discord.Member):
+    if user.bot:
+        await ctx.reply("❌ You can't marry a bot.")
+        return
+    await ctx.reply(propose_marriage(did(ctx.author.id), did(user.id)))
+
+
+@bot.tree.command(name="marryaccept", description="Accept a pending marriage proposal")
+async def marryaccept(interaction: discord.Interaction):
+    await interaction.response.send_message(accept_marriage(did(interaction.user.id)))
+
+
+@bot.command(name="marryaccept")
+async def marryaccept_prefix(ctx: commands.Context):
+    await ctx.reply(accept_marriage(did(ctx.author.id)))
+
+
+@bot.tree.command(name="divorce", description="End your marriage")
+async def divorce(interaction: discord.Interaction):
+    await interaction.response.send_message(do_divorce(did(interaction.user.id)))
+
+
+@bot.command(name="divorce")
+async def divorce_prefix(ctx: commands.Context):
+    await ctx.reply(do_divorce(did(ctx.author.id)))
+
+
+@bot.tree.command(name="partner", description="See who you're (or someone else is) married to")
+@app_commands.describe(user="The user to check (leave blank for yourself)")
+async def partner(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    partner_id = get_partner(did(target.id))
+    if partner_id is None:
+        await interaction.response.send_message(f"💔 **{target.display_name}** isn't married.")
+        return
+    await interaction.response.send_message(f"💍 **{target.display_name}** is married to <@{partner_id.split(':', 1)[-1]}>.")
+
+
+@bot.command(name="partner")
+async def partner_prefix(ctx: commands.Context, user: discord.Member = None):
+    target = user or ctx.author
+    partner_id = get_partner(did(target.id))
+    if partner_id is None:
+        await ctx.reply(f"💔 **{target.display_name}** isn't married.")
+        return
+    await ctx.reply(f"💍 **{target.display_name}** is married to <@{partner_id.split(':', 1)[-1]}>.")
+
+
+# ---------- Achievements command ----------
+
+@bot.tree.command(name="achievements", description="See your (or someone else's) achievements")
+@app_commands.describe(user="The user to check (leave blank for yourself)")
+async def achievements(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    await interaction.response.send_message(build_achievements_text(target.display_name, did(target.id)))
+
+
+@bot.command(name="achievements", aliases=["badges"])
+async def achievements_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(build_achievements_text(target.display_name, did(target.id)))
+
+
+# ---------- Market commands ----------
+
+@bot.tree.command(name="sell", description="List an item for sale on the player market")
+@app_commands.describe(item="Item name (vx, gun, shovel...)", quantity="How many to sell", price="Price per item")
+async def sell(interaction: discord.Interaction, item: str, quantity: str, price: str):
+    success, message = create_listing(did(interaction.user.id), item, quantity, price)
+    await interaction.response.send_message(message)
+
+
+@bot.command(name="sell")
+async def sell_prefix(ctx: commands.Context, item: str, quantity: str, price: str):
+    success, message = create_listing(did(ctx.author.id), item, quantity, price)
+    await ctx.reply(message)
+
+
+@bot.tree.command(name="market", description="Browse the player market")
+async def market(interaction: discord.Interaction):
+    await interaction.response.send_message(build_market_text())
+
+
+@bot.command(name="market")
+async def market_prefix(ctx: commands.Context):
+    await ctx.reply(build_market_text())
+
+
+@bot.tree.command(name="buylisting", description="Buy a listing from the player market")
+@app_commands.describe(listing_id="The listing ID (see .market)")
+async def buylisting(interaction: discord.Interaction, listing_id: str):
+    await interaction.response.send_message(buy_listing(did(interaction.user.id), listing_id))
+
+
+@bot.command(name="buylisting")
+async def buylisting_prefix(ctx: commands.Context, listing_id: str):
+    await ctx.reply(buy_listing(did(ctx.author.id), listing_id))
+
+
+@bot.tree.command(name="cancellisting", description="Cancel your own market listing")
+@app_commands.describe(listing_id="The listing ID to cancel")
+async def cancellisting(interaction: discord.Interaction, listing_id: str):
+    await interaction.response.send_message(cancel_listing(did(interaction.user.id), listing_id))
+
+
+@bot.command(name="cancellisting")
+async def cancellisting_prefix(ctx: commands.Context, listing_id: str):
+    await ctx.reply(cancel_listing(did(ctx.author.id), listing_id))
+
+
 @bot.tree.command(name="lb", description="Show the richest users")
 async def lb(interaction: discord.Interaction):
     await interaction.response.send_message(build_leaderboard_text())
@@ -3198,6 +4087,8 @@ async def on_message(message: discord.Message):
                             level_up_msg += f"\n🏅 You've earned the **{role.name}** role!"
                         except discord.Forbidden:
                             pass
+                if new_level >= 20 and grant_achievement(did(message.author.id), "veteran"):
+                    level_up_msg += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['veteran']['label']}**"
                 await message.channel.send(level_up_msg)
         except Exception as e:
             print(f"XP handling failed: {e}")
