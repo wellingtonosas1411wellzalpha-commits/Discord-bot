@@ -26,10 +26,20 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.2"
+BOT_VERSION = "1.11.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.3",
+        "date": "2026-08-30",
+        "changes": [
+            "First job paycheck now waits the full 3 days instead of paying on the next hourly check",
+            ".shop / .buy no longer crash if used in DMs",
+            "Market buy now deletes the listing, moves coins, and gives the item in one database commit",
+            "Stopped posting update announcements in every server on startup",
+        ],
+    },
     {
         "version": "1.11.2",
         "date": "2026-08-30",
@@ -1217,8 +1227,8 @@ def set_job(user_id, job_key: str):
         return f"⏳ You can only change jobs once every 2 weeks. Try again in **{days}d {hours}h**."
     conn, cur = get_db()
     cur.execute(
-        "INSERT INTO jobs (user_id, job) VALUES (%s, %s) "
-        "ON CONFLICT (user_id) DO UPDATE SET job = EXCLUDED.job",
+        "INSERT INTO jobs (user_id, job, last_salary) VALUES (%s, %s, NOW()) "
+        "ON CONFLICT (user_id) DO UPDATE SET job = EXCLUDED.job, last_salary = NOW()",
         (user_id, job_key),
     )
     conn.commit()
@@ -2554,43 +2564,74 @@ def buy_listing(buyer_id, listing_id_str: str):
         return "❌ Usage: `.buylisting <id>`"
 
     conn, cur = get_db()
-    cur.execute(
-        "SELECT seller_id, item_key, quantity, price FROM market_listings WHERE listing_id = %s",
-        (listing_id,),
-    )
-    row = cur.fetchone()
-    if row is None:
-        cur.close()
-        release_db(conn)
-        return "❌ That listing doesn't exist — it may already be sold or cancelled."
-    seller_id, item_key, quantity, price = row
-    if seller_id == buyer_id:
-        cur.close()
-        release_db(conn)
-        return "❌ You can't buy your own listing. Cancel it instead with `.cancellisting`."
+    try:
+        cur.execute(
+            "SELECT seller_id, item_key, quantity, price FROM market_listings WHERE listing_id = %s FOR UPDATE",
+            (listing_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.rollback()
+            return "❌ That listing doesn't exist — it may already be sold or cancelled."
+        seller_id, item_key, quantity, price = row
+        if seller_id == buyer_id:
+            conn.rollback()
+            return "❌ You can't buy your own listing. Cancel it instead with `.cancellisting`."
 
-    total = price * quantity
-    bal = get_balance(buyer_id)
-    if bal["wallet"] < total:
-        cur.close()
-        release_db(conn)
-        return f"❌ You need **{total:,}** coins but only have **{bal['wallet']:,}**."
+        total = price * quantity
+        cur.execute(
+            "INSERT INTO balances (user_id, wallet, bank, limit_amt) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (user_id) DO NOTHING",
+            (buyer_id, DEFAULT_WALLET, DEFAULT_BANK, 0),
+        )
+        cur.execute(
+            "INSERT INTO balances (user_id, wallet, bank, limit_amt) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (user_id) DO NOTHING",
+            (seller_id, DEFAULT_WALLET, DEFAULT_BANK, 0),
+        )
+        cur.execute("SELECT wallet FROM balances WHERE user_id = %s FOR UPDATE", (buyer_id,))
+        buyer_wallet = cur.fetchone()[0]
+        if buyer_wallet < total:
+            conn.rollback()
+            return f"❌ You need **{total:,}** coins but only have **{buyer_wallet:,}**."
 
-    cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
-    if cur.rowcount == 0:
+        tax = int(total * MARKET_TAX_RATE) if total > 0 else 0
+        net = total - tax
+
+        cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return "❌ That listing was just bought by someone else."
+
+        cur.execute(
+            "UPDATE balances SET wallet = wallet - %s WHERE user_id = %s",
+            (total, buyer_id),
+        )
+        cur.execute(
+            "UPDATE balances SET wallet = wallet + %s WHERE user_id = %s",
+            (net, seller_id),
+        )
+        if tax > 0:
+            cur.execute("SELECT value FROM bot_meta WHERE key = %s", (TREASURY_META_KEY,))
+            treasury_row = cur.fetchone()
+            current_treasury = int(treasury_row[0]) if treasury_row else 0
+            cur.execute(
+                "INSERT INTO bot_meta (key, value) VALUES (%s, %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (TREASURY_META_KEY, str(current_treasury + tax)),
+            )
+        cur.execute(
+            "INSERT INTO global_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s) "
+            "ON CONFLICT (user_id, item_key) DO UPDATE SET quantity = global_inventory.quantity + %s",
+            (buyer_id, item_key, quantity, quantity),
+        )
+        conn.commit()
+    except Exception:
         conn.rollback()
+        raise
+    finally:
         cur.close()
         release_db(conn)
-        return "❌ That listing was just bought by someone else."
-    conn.commit()
-    cur.close()
-    release_db(conn)
-
-    update_balance(buyer_id, wallet=bal["wallet"] - total)
-    net, tax = apply_tax(total, rate=MARKET_TAX_RATE)
-    seller_bal = get_balance(seller_id)
-    update_balance(seller_id, wallet=seller_bal["wallet"] + net)
-    add_global_item(buyer_id, item_key, quantity)
 
     item_name = GLOBAL_ITEMS.get(item_key, {}).get("name", item_key)
     return f"✅ Bought **{quantity}x {item_name}** for **{total:,}** coins!"
@@ -2683,7 +2724,10 @@ async def salary_payout_loop():
         info = JOBS.get(job_key)
         if info is None:
             continue
-        last_ts = last_salary.timestamp() if last_salary else 0
+        if last_salary is None:
+            cur.execute("UPDATE jobs SET last_salary = NOW() WHERE user_id = %s", (user_id,))
+            continue
+        last_ts = last_salary.timestamp()
         if now - last_ts < SALARY_INTERVAL_HOURS * 3600:
             continue
         net, tax = apply_tax(info["pay"])
@@ -2725,20 +2769,7 @@ async def on_ready():
             previous_names = previous_raw.split(",") if previous_raw else []
             new_ones = sorted(set(current_names) - set(previous_names))
             if new_ones:
-                announcement = (
-                    "🚀 *Update Applied!*\n"
-                    f"New commands are now live: {', '.join('/' + n for n in new_ones)}\n"
-                    "Type `/menu` or `.menu` to see everything I can do!"
-                )
-                for guild in bot.guilds:
-                    for channel in guild.text_channels:
-                        perms = channel.permissions_for(guild.me)
-                        if perms.send_messages:
-                            try:
-                                await channel.send(announcement)
-                            except discord.HTTPException:
-                                pass
-                            break
+                print("New slash commands: " + ", ".join(new_ones))
         set_meta("command_list", ",".join(current_names))
     except Exception as e:
         print(f"Failed to sync commands: {e}")
@@ -3982,11 +4013,17 @@ async def rob_prefix(ctx: commands.Context, user: discord.User):
 
 @bot.tree.command(name="shop", description="View this server's shop")
 async def shop(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message("❌ Use this command in a server.")
+        return
     await interaction.response.send_message(build_shop_text(interaction.guild.id))
 
 
 @bot.command(name="shop")
 async def shop_prefix(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.reply("❌ Use this command in a server.")
+        return
     await ctx.reply(build_shop_text(ctx.guild.id))
 
 
@@ -4004,6 +4041,9 @@ def handle_buy(user_id: int, guild_id: int, item_name: str):
 @bot.tree.command(name="buy", description="Buy an item from the shop")
 @app_commands.describe(item="Item name (vx, gun, shovel...) or server item ID")
 async def buy(interaction: discord.Interaction, item: str):
+    if interaction.guild is None:
+        await interaction.response.send_message("❌ Use this command in a server.")
+        return
     success, message, role_id = handle_buy(did(interaction.user.id), interaction.guild.id, item)
     if success and role_id is not None and isinstance(interaction.user, discord.Member):
         role = interaction.guild.get_role(role_id)
@@ -4018,6 +4058,9 @@ async def buy(interaction: discord.Interaction, item: str):
 
 @bot.command(name="buy")
 async def buy_prefix(ctx: commands.Context, *, item: str):
+    if ctx.guild is None:
+        await ctx.reply("❌ Use this command in a server.")
+        return
     success, message, role_id = handle_buy(did(ctx.author.id), ctx.guild.id, item)
     if success and role_id is not None and isinstance(ctx.author, discord.Member):
         role = ctx.guild.get_role(role_id)
