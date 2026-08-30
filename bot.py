@@ -26,10 +26,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.9.3"
+BOT_VERSION = "1.10.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.10.0",
+        "date": "2026-08-30",
+        "changes": [
+            "Added .take (Administrator-only) — strip a role from a user directly, mirrors .give",
+            "Added .give/.take/.setlevelrole/.levelroles to the menu and help text (they existed but were missing from both)",
+        ],
+    },
     {
         "version": "1.9.3",
         "date": "2026-08-30",
@@ -839,6 +847,10 @@ COMMAND_HELP = {
     "buylisting": "Buy a listing from the player market.\nUsage: `.buylisting <id>`",
     "cancellisting": "Cancel your own market listing.\nUsage: `.cancellisting <id>`",
     "syncroles": "Re-apply any level role rewards you've earned but don't have (fixes cases where auto-assignment failed, e.g. a bot permissions issue).\nUsage: `.syncroles`",
+    "give": "[Admin] Give a role to a user directly.\nUsage: `.give @user @role`",
+    "take": "[Admin] Strip a role from a user directly.\nUsage: `.take @user @role`",
+    "setlevelrole": "[Admin] Set a role reward for reaching a level.\nUsage: `.setlevelrole <level> @role`",
+    "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
 }
 
 
@@ -928,6 +940,12 @@ def build_menu_text():
         "┃ • cds\n"
         "┃ • donate\n"
         "┃ • help\n"
+        "┃\n"
+        "┃ ── Admin ──\n"
+        "┃ • give\n"
+        "┃ • take\n"
+        "┃ • setlevelrole\n"
+        "┃ • levelroles\n"
         "┃\n"
         "┃ ── Owner ──\n"
         "┃ • auth\n"
@@ -3928,6 +3946,80 @@ async def setlevelrole_prefix(ctx: commands.Context, level: int, role: discord.R
         return
     set_level_role(ctx.guild.id, level, role.id)
     await ctx.reply(f"✅ Users will now get **{role.name}** at level **{level}**.")
+
+
+@bot.tree.command(name="give", description="[Admin] Give a role to a user directly")
+@app_commands.describe(user="The user to give the role to", role="The role to give")
+async def give(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Only server administrators can do that.")
+        return
+    if role in user.roles:
+        await interaction.response.send_message(f"❌ **{user.display_name}** already has **{role.name}**.")
+        return
+    try:
+        await user.add_roles(role, reason=f"Given by {interaction.user}")
+        await interaction.response.send_message(f"✅ Gave **{role.name}** to **{user.display_name}**.")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Couldn't give **{role.name}** — the bot needs **Manage Roles** and its role "
+            f"must sit above **{role.name}** in Server Settings → Roles."
+        )
+
+
+@bot.command(name="give")
+async def give_prefix(ctx: commands.Context, user: discord.Member, role: discord.Role):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply("❌ Only server administrators can do that.")
+        return
+    if role in user.roles:
+        await ctx.reply(f"❌ **{user.display_name}** already has **{role.name}**.")
+        return
+    try:
+        await user.add_roles(role, reason=f"Given by {ctx.author}")
+        await ctx.reply(f"✅ Gave **{role.name}** to **{user.display_name}**.")
+    except discord.Forbidden:
+        await ctx.reply(
+            f"❌ Couldn't give **{role.name}** — the bot needs **Manage Roles** and its role "
+            f"must sit above **{role.name}** in Server Settings → Roles."
+        )
+
+
+@bot.tree.command(name="take", description="[Admin] Strip a role from a user directly")
+@app_commands.describe(user="The user to remove the role from", role="The role to remove")
+async def take(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Only server administrators can do that.")
+        return
+    if role not in user.roles:
+        await interaction.response.send_message(f"❌ **{user.display_name}** doesn't have **{role.name}**.")
+        return
+    try:
+        await user.remove_roles(role, reason=f"Removed by {interaction.user}")
+        await interaction.response.send_message(f"✅ Removed **{role.name}** from **{user.display_name}**.")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Couldn't remove **{role.name}** — the bot needs **Manage Roles** and its role "
+            f"must sit above **{role.name}** in Server Settings → Roles."
+        )
+
+
+@bot.command(name="take")
+async def take_prefix(ctx: commands.Context, user: discord.Member, role: discord.Role):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply("❌ Only server administrators can do that.")
+        return
+    if role not in user.roles:
+        await ctx.reply(f"❌ **{user.display_name}** doesn't have **{role.name}**.")
+        return
+    try:
+        await user.remove_roles(role, reason=f"Removed by {ctx.author}")
+        await ctx.reply(f"✅ Removed **{role.name}** from **{user.display_name}**.")
+    except discord.Forbidden:
+        await ctx.reply(
+            f"❌ Couldn't remove **{role.name}** — the bot needs **Manage Roles** and its role "
+            f"must sit above **{role.name}** in Server Settings → Roles."
+        )
 
 
 @bot.tree.command(name="levelroles", description="See all configured level role rewards")
