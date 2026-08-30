@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.3"
+BOT_VERSION = "1.11.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.4",
+        "date": "2026-08-30",
+        "changes": [
+            "Fixed a market race condition: cancelling a listing at the same instant someone else bought it could duplicate the item (buyer got it AND seller got it back). Cancel now uses the same row-locked, rowcount-checked pattern as buy",
+        ],
+    },
     {
         "version": "1.11.3",
         "date": "2026-08-30",
@@ -2644,24 +2651,31 @@ def cancel_listing(user_id, listing_id_str: str):
         return "❌ Usage: `.cancellisting <id>`"
 
     conn, cur = get_db()
-    cur.execute(
-        "SELECT seller_id, item_key, quantity FROM market_listings WHERE listing_id = %s",
-        (listing_id,),
-    )
-    row = cur.fetchone()
-    if row is None:
+    try:
+        cur.execute(
+            "SELECT seller_id, item_key, quantity FROM market_listings WHERE listing_id = %s FOR UPDATE",
+            (listing_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.rollback()
+            return "❌ That listing doesn't exist."
+        seller_id, item_key, quantity = row
+        if seller_id != user_id:
+            conn.rollback()
+            return "❌ That's not your listing."
+        cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return "❌ That listing was just bought by someone else."
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         cur.close()
         release_db(conn)
-        return "❌ That listing doesn't exist."
-    seller_id, item_key, quantity = row
-    if seller_id != user_id:
-        cur.close()
-        release_db(conn)
-        return "❌ That's not your listing."
-    cur.execute("DELETE FROM market_listings WHERE listing_id = %s", (listing_id,))
-    conn.commit()
-    cur.close()
-    release_db(conn)
+
     add_global_item(user_id, item_key, quantity)
     return "✅ Listing cancelled. Your items were returned."
 
