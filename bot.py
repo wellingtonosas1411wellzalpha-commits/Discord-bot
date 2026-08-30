@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.10.0"
+BOT_VERSION = "1.11.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.0",
+        "date": "2026-08-30",
+        "changes": [
+            "Added .profile — every stat for a player in one place: wallet/bank, level & XP, job & salary, pet, marriage partner, achievements progress, and inventory",
+        ],
+    },
     {
         "version": "1.10.0",
         "date": "2026-08-30",
@@ -799,6 +806,7 @@ COMMAND_HELP = {
     "trt": "Reply to a message to translate it.\nUsage: `.trt <language>`",
     "avatar": "Get a user's avatar.\nUsage: `.avatar [user]`",
     "userinfo": "Get member info.\nUsage: `.userinfo [user]`",
+    "profile": "See every stat for a player in one place: economy, level, job, pet, marriage, achievements, and inventory.\nUsage: `.profile [user]`",
     "poll": "Create a yes/no poll.\nUsage: `.poll <question>`",
     "updateinfo": "See the latest bot update notes.\nUsage: `.updateinfo`",
     "versions": "See the full version history log.\nUsage: `.versions`",
@@ -875,6 +883,7 @@ def build_menu_text():
         "┃ ── Info ──\n"
         "┃ • avatar\n"
         "┃ • userinfo\n"
+        "┃ • profile\n"
         "┃ • poll\n"
         "┃ • updateinfo\n"
         "┃ • versions\n"
@@ -2852,6 +2861,81 @@ def build_userinfo_embed(member):
     return embed
 
 
+def build_profile_embed(member):
+    """Everything about a player in one place: economy, leveling, job, pet,
+    marriage, achievements, and inventory."""
+    user_id = did(member.id)
+    bal = get_balance(user_id)
+    level_data = get_level_data(user_id)
+    xp_needed = xp_for_level(level_data["level"])
+    job_key = get_job(user_id)
+    pet = get_pet(user_id)
+    partner_id = get_partner(user_id)
+    earned_achievements = get_user_achievements(user_id)
+    inventory = get_global_inventory(user_id)
+
+    embed = discord.Embed(title=f"📋 Profile: {member.display_name}", color=discord.Color.gold())
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.add_field(
+        name="💰 Economy",
+        value=(
+            f"Wallet: **${bal['wallet']:,}**\n"
+            f"Bank: **${bal['bank']:,}**\n"
+            f"Total: **${bal['wallet'] + bal['bank']:,}**"
+        ),
+        inline=True,
+    )
+
+    embed.add_field(
+        name="🎖️ Level",
+        value=(
+            f"Level: **{level_data['level']}**\n"
+            f"XP: **{level_data['xp']:,} / {xp_needed:,}**"
+        ),
+        inline=True,
+    )
+
+    if job_key:
+        info = JOBS[job_key]
+        job_value = f"**{info['label']}**\n${info['pay']:,} / {SALARY_INTERVAL_HOURS // 24}d"
+    else:
+        job_value = "None — `.setjob`"
+    embed.add_field(name="💼 Job", value=job_value, inline=True)
+
+    if pet:
+        pet_info = PET_TYPES[pet["pet_type"]]
+        status = "🟢 Fed" if pet["hunger"] >= PET_STARVING_THRESHOLD else "🔴 Starving"
+        pet_value = f"**{pet['pet_name']}** ({pet_info['name']})\n{status} — {pet['hunger']}/100"
+    else:
+        pet_value = "None — `.buypet`"
+    embed.add_field(name="🐾 Pet", value=pet_value, inline=True)
+
+    if partner_id:
+        raw_id = partner_id.split(":", 1)[-1]
+        partner_value = f"<@{raw_id}>"
+    else:
+        partner_value = "Not married"
+    embed.add_field(name="💍 Partner", value=partner_value, inline=True)
+
+    embed.add_field(
+        name="🏅 Achievements",
+        value=f"**{len(earned_achievements)} / {len(ACHIEVEMENTS)}** unlocked",
+        inline=True,
+    )
+
+    if inventory:
+        inv_lines = [
+            f"{GLOBAL_ITEMS.get(key, {}).get('name', key)} x{qty}" for key, qty in inventory
+        ]
+        inv_value = "\n".join(inv_lines)
+    else:
+        inv_value = "Empty"
+    embed.add_field(name="🎒 Inventory", value=inv_value, inline=False)
+
+    return embed
+
+
 # ---------- Fun / Utility Commands ----------
 
 @bot.tree.command(name="ping", description="Check the bot's latency")
@@ -2905,6 +2989,19 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member = No
 async def userinfo_prefix(ctx: commands.Context, member: discord.Member = None):
     member = member or ctx.author
     await ctx.reply(embed=build_userinfo_embed(member))
+
+
+@bot.tree.command(name="profile", description="See every stat for a player: economy, level, job, pet, marriage, achievements, inventory")
+@app_commands.describe(member="The member to look up (defaults to you)")
+async def profile(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    await interaction.response.send_message(embed=build_profile_embed(member))
+
+
+@bot.command(name="profile")
+async def profile_prefix(ctx: commands.Context, member: discord.Member = None):
+    member = member or ctx.author
+    await ctx.reply(embed=build_profile_embed(member))
 
 
 @bot.tree.command(name="poll", description="Create a quick yes/no poll")
