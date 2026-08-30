@@ -26,10 +26,26 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.9.0"
+BOT_VERSION = "1.9.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.9.2",
+        "date": "2026-08-30",
+        "changes": [
+            ".setjob no longer takes a job argument — it now randomly assigns one from the job pool",
+        ],
+    },
+    {
+        "version": "1.9.1",
+        "date": "2026-08-30",
+        "changes": [
+            "Job salaries x10 across the board",
+            "Salary now pays out every 3 days (was every 6 hours)",
+            "Changing jobs (.setjob) is now limited to once every 2 weeks",
+        ],
+    },
     {
         "version": "1.9.0",
         "date": "2026-08-29",
@@ -269,15 +285,17 @@ ROB_FAIL_PENALTY_PERCENT = 0.10
 TAX_RATE = 0.10  # skimmed off salary and successful robs, feeds the server treasury
 TREASURY_META_KEY = "treasury_balance"
 
-SALARY_INTERVAL_HOURS = 6
+SALARY_INTERVAL_HOURS = 72  # every 3 days
 JOBS = {
-    "intern": {"label": "Intern", "pay": 2000},
-    "developer": {"label": "Software Developer", "pay": 5000},
-    "moderator": {"label": "Discord Moderator", "pay": 4000},
-    "streamer": {"label": "Streamer", "pay": 6000},
-    "chef": {"label": "Chef", "pay": 3500},
-    "pilot": {"label": "Pilot", "pay": 8000},
+    "intern": {"label": "Intern", "pay": 20000},
+    "developer": {"label": "Software Developer", "pay": 50000},
+    "moderator": {"label": "Discord Moderator", "pay": 40000},
+    "streamer": {"label": "Streamer", "pay": 60000},
+    "chef": {"label": "Chef", "pay": 35000},
+    "pilot": {"label": "Pilot", "pay": 80000},
 }
+
+SETJOB_COOLDOWN_SECONDS = 14 * 24 * 3600  # once every 2 weeks
 
 MARKET_TAX_RATE = 0.05  # market sales are taxed lightly too
 
@@ -795,7 +813,7 @@ COMMAND_HELP = {
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
-    "setjob": "Pick a persistent job that pays a salary automatically, even offline.\nUsage: `.setjob <job>`",
+    "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
     "myjob": "See your current job and salary.\nUsage: `.myjob`",
     "jobs": "List available jobs and their pay.\nUsage: `.jobs`",
     "treasury": "See the server treasury, funded by taxes.\nUsage: `.treasury`",
@@ -1141,6 +1159,11 @@ def do_work(user_id: int):
 # even while you're offline. Salary is taxed; the tax feeds the treasury.
 
 def set_job(user_id, job_key: str):
+    remaining = check_persistent_cooldown("setjob", user_id, SETJOB_COOLDOWN_SECONDS)
+    if remaining is not None:
+        days = int(remaining // 86400)
+        hours = int((remaining % 86400) // 3600)
+        return f"⏳ You can only change jobs once every 2 weeks. Try again in **{days}d {hours}h**."
     conn, cur = get_db()
     cur.execute(
         "INSERT INTO jobs (user_id, job) VALUES (%s, %s) "
@@ -1150,6 +1173,7 @@ def set_job(user_id, job_key: str):
     conn.commit()
     cur.close()
     release_db(conn)
+    return f"🎲 You've been assigned a job: **{JOBS[job_key]['label']}**! Salary: **${JOBS[job_key]['pay']:,}** every {SALARY_INTERVAL_HOURS // 24} days."
 
 
 def get_job(user_id):
@@ -1174,21 +1198,21 @@ def get_all_jobholders():
 def build_myjob_text(user_id) -> str:
     job_key = get_job(user_id)
     if not job_key:
-        options = ", ".join(f"`{k}`" for k in JOBS)
-        return f"❌ You don't have a job yet. Pick one with `.setjob <job>`.\nOptions: {options}"
+        return "❌ You don't have a job yet. Get one with `.setjob` (it's randomly assigned)."
     info = JOBS[job_key]
     return (
         f"💼 You work as a **{info['label']}**\n"
-        f"💰 Salary: **${info['pay']:,}** every **{SALARY_INTERVAL_HOURS}h** (before tax)"
+        f"💰 Salary: **${info['pay']:,}** every **{SALARY_INTERVAL_HOURS // 24} days** (before tax)\n"
+        f"🔁 You can reroll once every 2 weeks (`.setjob`)"
     )
 
 
 def build_jobs_list_text() -> str:
     lines = ["╭━━━〔 💼 ᴀᴠᴀɪʟᴀʙʟᴇ ᴊᴏʙs 〕━━━⬣", "┃"]
     for key, info in JOBS.items():
-        lines.append(f"┃ `{key}` — {info['label']} — ${info['pay']:,}/{SALARY_INTERVAL_HOURS}h")
+        lines.append(f"┃ `{key}` — {info['label']} — ${info['pay']:,}/{SALARY_INTERVAL_HOURS // 24}d")
     lines.append("┃")
-    lines.append("┃ Set yours with `.setjob <job>`")
+    lines.append("┃ Get randomly assigned one with `.setjob` (once every 2 weeks)")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
 
@@ -3456,27 +3480,16 @@ async def work_prefix(ctx: commands.Context):
     await ctx.reply(do_work(did(ctx.author.id)))
 
 
-@bot.tree.command(name="setjob", description="Pick a persistent job that pays you a salary automatically")
-@app_commands.describe(job="Job key — see /jobs for the list")
-async def setjob(interaction: discord.Interaction, job: str):
-    key = job.strip().lower().replace(" ", "")
-    if key not in JOBS:
-        options = ", ".join(f"`{k}`" for k in JOBS)
-        await interaction.response.send_message(f"❌ Unknown job. Choose one of: {options}")
-        return
-    set_job(did(interaction.user.id), key)
-    await interaction.response.send_message(f"✅ You're now working as a **{JOBS[key]['label']}**!")
+@bot.tree.command(name="setjob", description="Get randomly assigned a job that pays you a salary automatically")
+async def setjob(interaction: discord.Interaction):
+    job_key = random.choice(list(JOBS.keys()))
+    await interaction.response.send_message(set_job(did(interaction.user.id), job_key))
 
 
 @bot.command(name="setjob")
-async def setjob_prefix(ctx: commands.Context, *, job: str = ""):
-    key = job.strip().lower().replace(" ", "")
-    if key not in JOBS:
-        options = ", ".join(f"`{k}`" for k in JOBS)
-        await ctx.reply(f"❌ Unknown job. Choose one of: {options}")
-        return
-    set_job(did(ctx.author.id), key)
-    await ctx.reply(f"✅ You're now working as a **{JOBS[key]['label']}**!")
+async def setjob_prefix(ctx: commands.Context):
+    job_key = random.choice(list(JOBS.keys()))
+    await ctx.reply(set_job(did(ctx.author.id), job_key))
 
 
 @bot.tree.command(name="myjob", description="See your current job and salary")
