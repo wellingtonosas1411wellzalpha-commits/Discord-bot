@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.0"
+BOT_VERSION = "1.11.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.1",
+        "date": "2026-08-30",
+        "changes": [
+            "Fixed /profile timing out with 'The application did not respond' — it does 7 database lookups (more than any other command), which could exceed Discord's 3-second response window; now defers the response and surfaces real errors instead of failing silently",
+        ],
+    },
     {
         "version": "1.11.0",
         "date": "2026-08-30",
@@ -2994,14 +3001,27 @@ async def userinfo_prefix(ctx: commands.Context, member: discord.Member = None):
 @bot.tree.command(name="profile", description="See every stat for a player: economy, level, job, pet, marriage, achievements, inventory")
 @app_commands.describe(member="The member to look up (defaults to you)")
 async def profile(interaction: discord.Interaction, member: discord.Member = None):
+    await interaction.response.defer()
     member = member or interaction.user
-    await interaction.response.send_message(embed=build_profile_embed(member))
+    try:
+        embed = build_profile_embed(member)
+    except Exception as e:
+        print(f"profile command failed: {e}")
+        await interaction.followup.send("❌ Something went wrong building that profile. Try again in a moment.")
+        return
+    await interaction.followup.send(embed=embed)
 
 
 @bot.command(name="profile")
 async def profile_prefix(ctx: commands.Context, member: discord.Member = None):
     member = member or ctx.author
-    await ctx.reply(embed=build_profile_embed(member))
+    try:
+        embed = build_profile_embed(member)
+    except Exception as e:
+        print(f"profile command failed: {e}")
+        await ctx.reply("❌ Something went wrong building that profile. Try again in a moment.")
+        return
+    await ctx.reply(embed=embed)
 
 
 @bot.tree.command(name="poll", description="Create a quick yes/no poll")
