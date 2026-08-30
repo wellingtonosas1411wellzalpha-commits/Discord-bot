@@ -26,10 +26,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.9.2"
+BOT_VERSION = "1.9.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.9.3",
+        "date": "2026-08-30",
+        "changes": [
+            "Fixed level roles failing silently — a missing role, missing bot permission, or role hierarchy issue now shows a warning instead of nothing at all",
+            "Added .syncroles to retroactively re-apply any level role rewards you've earned but don't have",
+        ],
+    },
     {
         "version": "1.9.2",
         "date": "2026-08-30",
@@ -830,6 +838,7 @@ COMMAND_HELP = {
     "market": "Browse the player market.\nUsage: `.market`",
     "buylisting": "Buy a listing from the player market.\nUsage: `.buylisting <id>`",
     "cancellisting": "Cancel your own market listing.\nUsage: `.cancellisting <id>`",
+    "syncroles": "Re-apply any level role rewards you've earned but don't have (fixes cases where auto-assignment failed, e.g. a bot permissions issue).\nUsage: `.syncroles`",
 }
 
 
@@ -898,6 +907,7 @@ def build_menu_text():
         "┃ • market\n"
         "┃ • buylisting\n"
         "┃ • cancellisting\n"
+        "┃ • syncroles\n"
         "┃\n"
         "┃ ── Shop ──\n"
         "┃ • shop\n"
@@ -3944,6 +3954,56 @@ async def levelroles_prefix(ctx: commands.Context):
     await ctx.reply("\n".join(lines))
 
 
+async def _sync_roles_for(member: discord.Member):
+    """Re-applies any level role rewards the member has earned but doesn't
+    have — for cases where auto-assignment failed (e.g. a permissions fix
+    happened after the level-up already occurred)."""
+    data = get_level_data(did(member.id))
+    current_level = data["level"]
+    rows = list_level_roles(member.guild.id)
+    given, blocked, gone = [], [], []
+    for level, role_id in rows:
+        if level > current_level:
+            continue
+        role = member.guild.get_role(int(role_id))
+        if role is None:
+            gone.append(str(level))
+            continue
+        if role in member.roles:
+            continue
+        try:
+            await member.add_roles(role, reason="Level role sync")
+            given.append(role.name)
+        except discord.Forbidden:
+            blocked.append(role.name)
+    if not given and not blocked and not gone:
+        return "✅ You already have every role reward you've earned."
+    parts = []
+    if given:
+        parts.append(f"🏅 Given: {', '.join(given)}")
+    if blocked:
+        parts.append(f"⚠️ Couldn't give (check the bot's Manage Roles permission and role position): {', '.join(blocked)}")
+    if gone:
+        parts.append(f"⚠️ Configured role(s) for level(s) {', '.join(gone)} no longer exist on this server.")
+    return "\n".join(parts)
+
+
+@bot.tree.command(name="syncroles", description="Re-apply any level role rewards you're missing")
+async def syncroles(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("❌ This only works inside a server.")
+        return
+    await interaction.response.send_message(await _sync_roles_for(interaction.user))
+
+
+@bot.command(name="syncroles")
+async def syncroles_prefix(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.reply("❌ This only works inside a server.")
+        return
+    await ctx.reply(await _sync_roles_for(ctx.author))
+
+
 @bot.tree.command(name="slot", description="Play the slot machine")
 @app_commands.describe(amount="Amount to bet, or 'all'")
 async def slot(interaction: discord.Interaction, amount: str):
@@ -4094,12 +4154,23 @@ async def on_message(message: discord.Message):
                 role_id = get_level_role(message.guild.id, new_level)
                 if role_id is not None:
                     role = message.guild.get_role(role_id)
-                    if role is not None and isinstance(message.author, discord.Member):
+                    if role is None:
+                        level_up_msg += (
+                            f"\n⚠️ A role reward is set for level {new_level}, but that role "
+                            f"no longer exists on this server."
+                        )
+                    elif isinstance(message.author, discord.Member):
                         try:
                             await message.author.add_roles(role, reason=f"Reached level {new_level}")
                             level_up_msg += f"\n🏅 You've earned the **{role.name}** role!"
                         except discord.Forbidden:
-                            pass
+                            level_up_msg += (
+                                f"\n⚠️ Couldn't give you the **{role.name}** role — the bot needs "
+                                f"**Manage Roles** and its role must sit above **{role.name}** in "
+                                f"Server Settings → Roles."
+                            )
+                        except discord.HTTPException as e:
+                            level_up_msg += f"\n⚠️ Couldn't give you the **{role.name}** role (Discord error: {e})."
                 if new_level >= 20 and grant_achievement(did(message.author.id), "veteran"):
                     level_up_msg += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['veteran']['label']}**"
                 await message.channel.send(level_up_msg)
