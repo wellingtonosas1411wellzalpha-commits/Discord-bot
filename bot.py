@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.1"
+BOT_VERSION = "1.11.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.2",
+        "date": "2026-08-30",
+        "changes": [
+            "Fixed .versions/.history failing with 'The application did not respond' — the full changelog had grown past Discord's 2000-character message limit, so the send itself was silently rejected; it now shows the most recent entries and notes how many older ones were left out",
+        ],
+    },
     {
         "version": "1.11.1",
         "date": "2026-08-30",
@@ -3315,17 +3322,40 @@ def build_updateinfo_text() -> str:
 
 
 def build_version_history_text() -> str:
-    lines = [
+    """Discord caps a single message at 2000 characters. As VERSION_HISTORY
+    grows, showing every entry eventually exceeds that and the send fails
+    outright (looks like 'the application did not respond'). So this shows
+    as many of the most recent entries as fit, oldest-first is not
+    preserved — newest first, truncate once we're near the limit."""
+    CHAR_BUDGET = 1900  # leave headroom under Discord's 2000 cap
+    header = [
         "╭━━━〔 📜 Version History 〕━━━⬣",
         f"┃ Current: **{BOT_VERSION}**",
         "┃",
     ]
+    footer_template = "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    used = sum(len(l) + 1 for l in header) + len(footer_template) + 1
+
+    body_lines = []
+    shown = 0
     for entry in VERSION_HISTORY:
-        lines.append(f"┃ **v{entry['version']}** — {entry['date']}")
+        entry_lines = [f"┃ **v{entry['version']}** — {entry['date']}"]
         for change in entry["changes"]:
-            lines.append(f"┃  • {change}")
+            entry_lines.append(f"┃  • {change}")
+        entry_lines.append("┃")
+        entry_len = sum(len(l) + 1 for l in entry_lines)
+        if used + entry_len > CHAR_BUDGET:
+            break
+        body_lines.extend(entry_lines)
+        used += entry_len
+        shown += 1
+
+    omitted = len(VERSION_HISTORY) - shown
+    lines = header + body_lines
+    if omitted > 0:
+        lines.append(f"┃ …and {omitted} older update(s) not shown here.")
         lines.append("┃")
-    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    lines.append(footer_template)
     return "\n".join(lines)
 
 
