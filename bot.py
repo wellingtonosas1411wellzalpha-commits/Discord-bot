@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.5"
+BOT_VERSION = "1.12.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.12.0",
+        "date": "2026-08-30",
+        "changes": [
+            "Added .recharge — bot owner only, adds 100,000,000 coins to your wallet",
+        ],
+    },
     {
         "version": "1.11.5",
         "date": "2026-08-30",
@@ -1000,6 +1007,7 @@ def build_menu_text():
         "┃ • stats\n"
         "┃ • activity\n"
         "┃ • clearcache\n"
+        "┃ • recharge\n"
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
@@ -3654,6 +3662,29 @@ async def clearcache(interaction: discord.Interaction):
 @commands.is_owner()
 async def clearcache_prefix(ctx: commands.Context):
     await ctx.reply(do_clearcache())
+
+
+RECHARGE_AMOUNT = 100_000_000
+
+
+@bot.tree.command(name="recharge", description="[Owner only] Add 100,000,000 coins to your wallet")
+async def recharge(interaction: discord.Interaction):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
+    user_id = did(interaction.user.id)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + RECHARGE_AMOUNT)
+    await interaction.response.send_message(f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.")
+
+
+@bot.command(name="recharge")
+@commands.is_owner()
+async def recharge_prefix(ctx: commands.Context):
+    user_id = did(ctx.author.id)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + RECHARGE_AMOUNT)
+    await ctx.reply(f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.")
 
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
