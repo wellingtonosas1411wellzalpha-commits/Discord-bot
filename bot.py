@@ -26,10 +26,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.14.0"
+BOT_VERSION = "1.15.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.15.0",
+        "date": "2026-08-31",
+        "changes": [
+            "Gambling losses and rob fines now go to the bot's bank",
+            "Added .loan / .payloan — borrow from the bot bank, with a time limit and payback based on the amount",
+            "In the bot's DMs, start a message with * to announce it in every server with no pings",
+        ],
+    },
     {
         "version": "1.14.0",
         "date": "2026-08-31",
@@ -370,6 +379,7 @@ ROB_FAIL_PENALTY_PERCENT = 0.10
 
 TAX_RATE = 0.10  # skimmed off salary only (rob is untaxed), feeds the server treasury
 TREASURY_META_KEY = "treasury_balance"
+BOT_BANK_KEY = "bot_bank"
 
 SALARY_INTERVAL_HOURS = 72  # every 3 days
 JOBS = {
@@ -544,6 +554,15 @@ def init_db():
             quantity INTEGER NOT NULL,
             price BIGINT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS loans (
+            user_id TEXT PRIMARY KEY,
+            principal BIGINT NOT NULL,
+            repay_amount BIGINT NOT NULL,
+            remaining BIGINT NOT NULL,
+            due_at DOUBLE PRECISION NOT NULL
         )
     """)
     conn.commit()
@@ -783,6 +802,187 @@ def add_to_treasury(amount: int):
     set_meta(TREASURY_META_KEY, str(get_treasury() + amount))
 
 
+def get_bot_bank() -> int:
+    value = get_meta(BOT_BANK_KEY)
+    return int(value) if value else 0
+
+
+def add_to_bot_bank(amount: int):
+    if amount <= 0:
+        return
+    set_meta(BOT_BANK_KEY, str(get_bot_bank() + amount))
+
+
+def take_from_bot_bank(amount: int) -> bool:
+    if amount <= 0:
+        return True
+    current = get_bot_bank()
+    if current < amount:
+        return False
+    set_meta(BOT_BANK_KEY, str(current - amount))
+    return True
+
+
+def house_take(amount: int):
+    """Send lost coins to the bot's lending bank."""
+    add_to_bot_bank(amount)
+
+
+def loan_terms(amount: int):
+    """Return (hours, repay_amount) based on how big the loan is."""
+    if amount <= 10_000:
+        hours, rate = 2, 1.10
+    elif amount <= 100_000:
+        hours, rate = 6, 1.15
+    elif amount <= 1_000_000:
+        hours, rate = 12, 1.20
+    elif amount <= 10_000_000:
+        hours, rate = 24, 1.30
+    else:
+        hours, rate = 48, 1.40
+    return hours, int(amount * rate)
+
+
+def get_loan(user_id):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT principal, repay_amount, remaining, due_at FROM loans WHERE user_id = %s",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    if not row:
+        return None
+    return {
+        "principal": row[0],
+        "repay_amount": row[1],
+        "remaining": row[2],
+        "due_at": row[3],
+    }
+
+
+def format_loan_status(user_id) -> str:
+    loan = get_loan(user_id)
+    if not loan:
+        return (
+            f"🏦 Bot bank: **${get_bot_bank():,}**\n"
+            "You have no active loan.\n"
+            "Usage: `.loan <amount>`"
+        )
+    left = int(loan["due_at"] - time.time())
+    if left <= 0:
+        timer = "⚠️ OVERDUE"
+    else:
+        hours = left // 3600
+        mins = (left % 3600) // 60
+        timer = f"{hours}h {mins}m left"
+    return (
+        "╭━━━〔 🏦 ʟᴏᴀɴ 〕━━━⬣\n"
+        f"┃ Borrowed: **${loan['principal']:,}**\n"
+        f"┃ Pay back: **${loan['remaining']:,}** / ${loan['repay_amount']:,}\n"
+        f"┃ Time: {timer}\n"
+        "┃ Pay with `.payloan <amount|all>`\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+def take_loan(user_id, amount_str: str) -> str:
+    if not amount_str:
+        return format_loan_status(user_id)
+    if get_loan(user_id):
+        return "❌ Pay off your current loan first.\n" + format_loan_status(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=get_bot_bank())
+    except ValueError:
+        return "❌ Usage: `.loan <amount>`"
+    if amount < 1000:
+        return "❌ Minimum loan is **$1,000**."
+    if amount > 20_000_000:
+        return "❌ Maximum loan is **$20,000,000**."
+    bank = get_bot_bank()
+    max_allowed = bank // 2
+    if amount > bank:
+        return f"❌ The bot bank only has **${bank:,}**."
+    if amount > max_allowed:
+        return f"❌ You can borrow up to half the bot bank (**${max_allowed:,}**)."
+    hours, repay = loan_terms(amount)
+    if not take_from_bot_bank(amount):
+        return "❌ The bot bank doesn't have enough right now."
+    due_at = time.time() + hours * 3600
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO loans (user_id, principal, repay_amount, remaining, due_at) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (user_id, amount, repay, repay, due_at),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + amount)
+    return (
+        f"✅ Loan approved: **${amount:,}**\n"
+        f"Pay back **${repay:,}** within **{hours} hours**.\n"
+        f"Use `.payloan <amount|all>`"
+    )
+
+
+def pay_loan(user_id, amount_str: str) -> str:
+    loan = get_loan(user_id)
+    if not loan:
+        return "❌ You don't have a loan to pay."
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str or "all", all_value=min(bal["wallet"], loan["remaining"]))
+    except ValueError:
+        return "❌ Usage: `.payloan <amount|all>`"
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return f"❌ You only have **${bal['wallet']:,}** in your wallet."
+    pay = min(amount, loan["remaining"])
+    update_balance(user_id, wallet=bal["wallet"] - pay)
+    add_to_bot_bank(pay)
+    leftover = loan["remaining"] - pay
+    conn, cur = get_db()
+    if leftover <= 0:
+        cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
+        conn.commit()
+        cur.close()
+        release_db(conn)
+        return f"✅ Loan paid off! **${pay:,}** returned to the bot bank."
+    cur.execute("UPDATE loans SET remaining = %s WHERE user_id = %s", (leftover, user_id))
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return f"✅ Paid **${pay:,}**. Still owed: **${leftover:,}**."
+
+
+def collect_overdue_loans():
+    conn, cur = get_db()
+    cur.execute("SELECT user_id, remaining FROM loans WHERE due_at <= %s", (time.time(),))
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    for user_id, remaining in rows:
+        bal = get_balance(user_id)
+        take = min(remaining, bal["wallet"] + bal["bank"])
+        from_wallet = min(take, bal["wallet"])
+        from_bank = take - from_wallet
+        update_balance(user_id, wallet=bal["wallet"] - from_wallet, bank=bal["bank"] - from_bank)
+        add_to_bot_bank(take)
+        leftover = remaining - take
+        conn, cur = get_db()
+        if leftover <= 0:
+            cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
+        else:
+            cur.execute("UPDATE loans SET remaining = %s WHERE user_id = %s", (leftover, user_id))
+        conn.commit()
+        cur.close()
+        release_db(conn)
+
+
 def apply_tax(amount: int, rate: float = TAX_RATE):
     """Splits an amount into (net, tax). The tax portion is added to the
     server treasury. Use this on salary and successful robs."""
@@ -885,6 +1085,8 @@ COMMAND_HELP = {
     "beg": "Beg for coins (1m cooldown).\nUsage: `.beg`",
     "dig": "Dig for coins. Requires a Shovel (`.buy shovel`).\nUsage: `.dig`",
     "rob": "Try to steal coins. Requires a Gun (`.buy gun`).\nUsage: `.rob @user`",
+    "loan": "Borrow coins from the bot bank. Time limit and payback depend on the amount.\nUsage: `.loan [amount]`",
+    "payloan": "Pay back your loan.\nUsage: `.payloan <amount|all>`",
     "shop": "View shop items. Slash command lets you pick an item and amount.\nUsage: `.shop` or `/shop`",
     "buy": "Buy an item. Add a number for quantity.\nUsage: `.buy vx` / `.buy gun 3` / `/shop`",
     "use": "Use a consumable item.\nUsage: `.use vx` / `.use v9` / `.use lucky`",
@@ -966,6 +1168,8 @@ def build_menu_text():
         "┃ • beg\n"
         "┃ • dig\n"
         "┃ • rob\n"
+        "┃ • loan\n"
+        "┃ • payloan\n"
         "┃\n"
         "┃ ── Jobs & Salary ──\n"
         "┃ • jobs\n"
@@ -1521,6 +1725,7 @@ def dig_mines(user_id: int, position_str: str):
                 game["mine_positions"].add(random.choice(available))
             dodged = True
         else:
+            house_take(game["bet"])
             text = build_mines_exploded_text(game, position)
             del active_mines_games[user_id]
             return text
@@ -1657,6 +1862,7 @@ def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
         del active_blackjack_games[user_id]
 
     if player_bust:
+        house_take(bet)
         return build_blackjack_text(
             game, reveal_dealer=True,
             result_line=f"💥 Bust! You lost **${bet:,}**.",
@@ -1697,6 +1903,7 @@ def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
             update_balance(user_id, wallet=bal["wallet"] + payout)
             result_line = f"🍀 Lucky save! You won **${payout:,}**!"
         else:
+            house_take(bet)
             result_line = f"😔 You lost **${bet:,}**."
 
     return build_blackjack_text(game, reveal_dealer=True, result_line=result_line)
@@ -1788,6 +1995,8 @@ async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
     if payout > 0:
         new_bal = get_balance(user_id)
         update_balance(user_id, wallet=new_bal["wallet"] + payout)
+    else:
+        house_take(amount)
     final_bal = get_balance(user_id)
 
     newly_earned = False
@@ -1848,6 +2057,7 @@ def do_dice(user_id: int, amount_str: str):
             f"💵 Wallet: ${final_bal['wallet']:,}"
         )
     else:
+        house_take(amount)
         final_bal = get_balance(user_id)
         return header + (
             "💥 *YOU LOST!* 💥\n"
@@ -2775,6 +2985,7 @@ def do_rob(robber_id: int, victim_id: int):
         penalty = int(robber_bal["wallet"] * ROB_FAIL_PENALTY_PERCENT)
         penalty = min(penalty, robber_bal["wallet"])
         update_balance(robber_id, wallet=robber_bal["wallet"] - penalty)
+        house_take(penalty)
         return f"🚨 You got caught! You paid a fine of **{penalty:,}** coins."
 
 
@@ -2808,6 +3019,11 @@ async def salary_payout_loop():
     release_db(conn)
 
 
+@tasks.loop(minutes=15)
+async def loan_collect_loop():
+    collect_overdue_loans()
+
+
 @tasks.loop(hours=24)
 async def bank_interest_loop():
     """Once a day, adds BANK_INTEREST_RATE interest to everyone's bank
@@ -2829,6 +3045,8 @@ async def on_ready():
         salary_payout_loop.start()
     if not bank_interest_loop.is_running():
         bank_interest_loop.start()
+    if not loan_collect_loop.is_running():
+        loan_collect_loop.start()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
@@ -3524,6 +3742,7 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
             f"💵 Wallet: ${final_bal['wallet']:,}"
         )
     else:
+        house_take(amount)
         final_bal = get_balance(user_id)
         return (
             "🪙 *COINFLIP* 🪙\n"
@@ -3619,6 +3838,7 @@ async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_fu
         update_balance(user_id, wallet=new_bal["wallet"] + payout)
     else:
         payout = 0
+        house_take(amount)
     final_bal = get_balance(user_id)
 
     result_text = build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
@@ -3808,6 +4028,28 @@ async def dig_prefix(ctx: commands.Context):
     await ctx.reply(do_dig(did(ctx.author.id)))
 
 
+@bot.tree.command(name="loan", description="Borrow coins from the bot bank")
+@app_commands.describe(amount="Amount to borrow. Leave empty to see your loan.")
+async def loan_cmd(interaction: discord.Interaction, amount: str = None):
+    await interaction.response.send_message(take_loan(did(interaction.user.id), amount))
+
+
+@bot.command(name="loan")
+async def loan_prefix(ctx: commands.Context, *, amount: str = None):
+    await ctx.reply(take_loan(did(ctx.author.id), amount))
+
+
+@bot.tree.command(name="payloan", description="Pay back your loan")
+@app_commands.describe(amount="Amount to pay, or all")
+async def payloan_cmd(interaction: discord.Interaction, amount: str = "all"):
+    await interaction.response.send_message(pay_loan(did(interaction.user.id), amount))
+
+
+@bot.command(name="payloan")
+async def payloan_prefix(ctx: commands.Context, *, amount: str = "all"):
+    await ctx.reply(pay_loan(did(ctx.author.id), amount))
+
+
 @bot.tree.command(name="daily", description="Claim your daily reward")
 async def daily(interaction: discord.Interaction):
     await interaction.response.send_message(do_daily(did(interaction.user.id)))
@@ -3862,12 +4104,18 @@ async def jobs_prefix(ctx: commands.Context):
 
 @bot.tree.command(name="treasury", description="See the server treasury (funded by taxes)")
 async def treasury(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary tax — rob is untaxed)")
+    await interaction.response.send_message(
+        f"🏛️ Server treasury: **${get_treasury():,}** (salary tax)\n"
+        f"🏦 Bot bank: **${get_bot_bank():,}** (gambling losses + loan repayments)"
+    )
 
 
 @bot.command(name="treasury")
 async def treasury_prefix(ctx: commands.Context):
-    await ctx.reply(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary tax — rob is untaxed)")
+    await ctx.reply(
+        f"🏛️ Server treasury: **${get_treasury():,}** (salary tax)\n"
+        f"🏦 Bot bank: **${get_bot_bank():,}** (gambling losses + loan repayments)"
+    )
 
 
 # ---------- Pet commands ----------
@@ -4567,11 +4815,14 @@ async def auth_prefix(ctx: commands.Context, state: str):
     await ctx.reply(f"🔐 Bot responses turned **{state}** for this server.")
 
 
-async def broadcast_owner_message(text: str):
-    """Post @everyone + text in every server the bot can speak in."""
+async def broadcast_owner_message(text: str, ping_everyone: bool = True):
+    """Post text in every server the bot can speak in."""
     sent = 0
     failed = 0
-    mention = discord.AllowedMentions(everyone=True, users=False, roles=False, replied_user=False)
+    mention = discord.AllowedMentions(
+        everyone=ping_everyone, users=False, roles=False, replied_user=False
+    )
+    payload = f"@everyone {text}" if ping_everyone else text
     for guild in bot.guilds:
         channel = None
         if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
@@ -4586,7 +4837,7 @@ async def broadcast_owner_message(text: str):
             failed += 1
             continue
         try:
-            await channel.send(f"@everyone {text}", allowed_mentions=mention)
+            await channel.send(payload, allowed_mentions=mention)
             sent += 1
         except discord.HTTPException:
             failed += 1
@@ -4598,14 +4849,16 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # Owner DM broadcast: "!hello" -> "@everyone hello" in every server
-    if message.guild is None and message.content.startswith("!"):
+    # Owner DM broadcast
+    if message.guild is None and message.content[:1] in ("!", "*"):
         if await bot.is_owner(message.author):
+            ping = message.content.startswith("!")
             text = message.content[1:].strip()
             if not text:
-                await message.channel.send("❌ Type something after `!`\nExample: `!nice`")
+                mark = "!" if ping else "*"
+                await message.channel.send(f"❌ Type something after `{mark}`")
                 return
-            sent, failed = await broadcast_owner_message(text)
+            sent, failed = await broadcast_owner_message(text, ping_everyone=ping)
             await message.channel.send(f"✅ Sent to **{sent}** server(s). Failed: **{failed}**.")
             return
 
