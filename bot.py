@@ -26,10 +26,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.13.0"
+BOT_VERSION = "1.14.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.14.0",
+        "date": "2026-08-31",
+        "changes": [
+            "No items are infinitely stackable anymore — Lucky Potion maxes at 1 stack, other stackable items max at 5",
+            "Added .reset [user] — owner only, sets wallet/bank back to default and clears lucky stacks",
+            ".recharge is now 50,000,000 coins and can only be used 3 times per day",
+        ],
+    },
     {
         "version": "1.13.0",
         "date": "2026-08-31",
@@ -913,6 +922,8 @@ COMMAND_HELP = {
     "take": "[Admin] Strip a role from a user directly.\nUsage: `.take @user @role`",
     "setlevelrole": "[Admin] Set a role reward for reaching a level.\nUsage: `.setlevelrole <level> @role`",
     "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
+    "recharge": "[Owner] Add 50,000,000 coins to your wallet. 3 uses per day.\nUsage: `.recharge`",
+    "reset": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
 }
 
 
@@ -1017,6 +1028,7 @@ def build_menu_text():
         "┃ • activity\n"
         "┃ • clearcache\n"
         "┃ • recharge\n"
+        "┃ • reset\n"
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
@@ -2045,7 +2057,7 @@ GLOBAL_ITEMS = {
     "lucky": {
         "name": "Lucky Potion",
         "price": 500000,
-        "description": "Adds +0.5 to your win-rate multiplier. Infinitely stackable. Use with .use lucky",
+        "description": "Adds +0.5 to your win-rate multiplier. Max 1 stack. Use with .use lucky",
         "consumable": True,
     },
     "gun": {
@@ -2069,7 +2081,7 @@ GLOBAL_ITEMS = {
     "guard": {
         "name": "Guard",
         "price": 50000,
-        "description": "Blocks the next robbery against you, then is used up",
+        "description": "Blocks the next robbery against you, then is used up. Max 5 held",
         "consumable": False,
         "stackable": True,
     },
@@ -2203,8 +2215,12 @@ def increment_kiragpt_reply_count(user_id):
     release_db(conn)
 
 
+MAX_LUCKY_STACKS = 1
+MAX_ITEM_STACK = 5
+
+
 def get_lucky_stacks(user_id) -> int:
-    return get_user_effects(user_id)["lucky_stacks"]
+    return min(MAX_LUCKY_STACKS, get_user_effects(user_id)["lucky_stacks"])
 
 
 def get_cd_boost_until(user_id):
@@ -2224,6 +2240,10 @@ def buy_global_item(user_id, item_key: str, amount: int = 1):
         if has_global_item(user_id, item_key):
             return False, f"❌ You already own a **{item['name']}** — no need to buy another."
         amount = 1
+    else:
+        owned = get_global_item_qty(user_id, item_key)
+        if owned + amount > MAX_ITEM_STACK:
+            return False, f"❌ You can only hold **{MAX_ITEM_STACK}** of **{item['name']}** (you have {owned})."
     bal = get_balance(user_id)
     total = item["price"] * amount
     if bal["wallet"] < total:
@@ -2251,11 +2271,15 @@ def use_global_item(user_id, item_key: str):
         mins = item["duration"] // 60
         return f"⚡ **{item['name']}** activated! All cooldowns are halved for **{mins} minutes**."
     if item_key == "lucky":
-        stacks = get_lucky_stacks(user_id) + 1
+        current = get_lucky_stacks(user_id)
+        if current >= MAX_LUCKY_STACKS:
+            add_global_item(user_id, item_key, 1)
+            return f"❌ Lucky Potion is already maxed at **{MAX_LUCKY_STACKS}** stack. Potion was not used."
+        stacks = current + 1
         set_user_effects(user_id, lucky_stacks=stacks)
         return (
             f"🍀 You drank a **Lucky Potion**!\n"
-            f"Lucky stacks: **{stacks}**\n"
+            f"Lucky stacks: **{stacks}/{MAX_LUCKY_STACKS}**\n"
             f"Win-rate multiplier: **x{1 + 0.5 * stacks:.1f}**"
         )
     return "✅ Used."
@@ -3681,27 +3705,77 @@ async def clearcache_prefix(ctx: commands.Context):
     await ctx.reply(do_clearcache())
 
 
-RECHARGE_AMOUNT = 100_000_000
+RECHARGE_AMOUNT = 50_000_000
+RECHARGE_DAILY_LIMIT = 3
 
 
-@bot.tree.command(name="recharge", description="[Owner only] Add 100,000,000 coins to your wallet")
+def recharge_uses_today(user_id) -> int:
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    value = get_meta(f"recharge_uses:{user_id}:{day}")
+    return int(value) if value else 0
+
+
+def add_recharge_use(user_id) -> int:
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    used = recharge_uses_today(user_id) + 1
+    set_meta(f"recharge_uses:{user_id}:{day}", str(used))
+    return used
+
+
+def do_recharge(user_id):
+    used = recharge_uses_today(user_id)
+    if used >= RECHARGE_DAILY_LIMIT:
+        return f"❌ Recharge limit reached. You can use it **{RECHARGE_DAILY_LIMIT}** times per day."
+    bal = get_balance(user_id)
+    update_balance(user_id, wallet=bal["wallet"] + RECHARGE_AMOUNT)
+    used = add_recharge_use(user_id)
+    left = RECHARGE_DAILY_LIMIT - used
+    return (
+        f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.\n"
+        f"Uses today: **{used}/{RECHARGE_DAILY_LIMIT}** ({left} left)"
+    )
+
+
+def do_reset(user_id):
+    update_balance(user_id, wallet=DEFAULT_WALLET, bank=DEFAULT_BANK)
+    set_user_effects(user_id, lucky_stacks=0)
+    return (
+        f"🔄 Reset complete.\n"
+        f"Wallet: **${DEFAULT_WALLET:,}**\n"
+        f"Bank: **${DEFAULT_BANK:,}**\n"
+        f"Lucky stacks: **0**"
+    )
+
+
+@bot.tree.command(name="recharge", description="[Owner only] Add 50,000,000 coins to your wallet (3/day)")
 async def recharge(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
         await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
         return
-    user_id = did(interaction.user.id)
-    bal = get_balance(user_id)
-    update_balance(user_id, wallet=bal["wallet"] + RECHARGE_AMOUNT)
-    await interaction.response.send_message(f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.")
+    await interaction.response.send_message(do_recharge(did(interaction.user.id)))
 
 
 @bot.command(name="recharge")
 @commands.is_owner()
 async def recharge_prefix(ctx: commands.Context):
-    user_id = did(ctx.author.id)
-    bal = get_balance(user_id)
-    update_balance(user_id, wallet=bal["wallet"] + RECHARGE_AMOUNT)
-    await ctx.reply(f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.")
+    await ctx.reply(do_recharge(did(ctx.author.id)))
+
+
+@bot.tree.command(name="reset", description="[Owner only] Reset a player's money and lucky stacks")
+@app_commands.describe(user="Player to reset. Leave empty to reset yourself.")
+async def reset_cmd(interaction: discord.Interaction, user: discord.User = None):
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+        return
+    target = user or interaction.user
+    await interaction.response.send_message(f"{target.mention}\n" + do_reset(did(target.id)))
+
+
+@bot.command(name="reset")
+@commands.is_owner()
+async def reset_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(f"{target.mention}\n" + do_reset(did(target.id)))
 
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
