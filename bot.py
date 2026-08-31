@@ -26,10 +26,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.12.0"
+BOT_VERSION = "1.13.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.13.0",
+        "date": "2026-08-31",
+        "changes": [
+            "/shop now lets you pick an item from a list and set how many to buy",
+            "/buy also has an amount option",
+            ".buy <item> <amount> works the same way",
+        ],
+    },
     {
         "version": "1.12.0",
         "date": "2026-08-30",
@@ -867,8 +876,8 @@ COMMAND_HELP = {
     "beg": "Beg for coins (1m cooldown).\nUsage: `.beg`",
     "dig": "Dig for coins. Requires a Shovel (`.buy shovel`).\nUsage: `.dig`",
     "rob": "Try to steal coins. Requires a Gun (`.buy gun`).\nUsage: `.rob @user`",
-    "shop": "View global and server shop items.\nUsage: `.shop`",
-    "buy": "Buy an item.\nUsage: `.buy vx` / `.buy gun` / `.buy <id>`",
+    "shop": "View shop items. Slash command lets you pick an item and amount.\nUsage: `.shop` or `/shop`",
+    "buy": "Buy an item. Add a number for quantity.\nUsage: `.buy vx` / `.buy gun 3` / `/shop`",
     "use": "Use a consumable item.\nUsage: `.use vx` / `.use v9` / `.use lucky`",
     "inventory": "See owned items.\nUsage: `.inventory [user]`",
     "cf": "Bet on a coinflip.\nUsage: `.cf heads/tails <amount|all>`",
@@ -1950,30 +1959,33 @@ def get_shop_item(guild_id: int, item_id: int):
     return row
 
 
-def buy_shop_item(user_id: int, guild_id: int, item_id: int):
+def buy_shop_item(user_id: int, guild_id: int, item_id: int, amount: int = 1):
     """Returns (success: bool, message: str, role_id_or_None)."""
     item = get_shop_item(guild_id, item_id)
     if item is None:
         return False, "❌ That item doesn't exist in this server's shop.", None
     _, name, price, description, role_id = item
+    amount = max(1, int(amount))
+    total = price * amount
 
     bal = get_balance(user_id)
-    if bal["wallet"] < price:
-        return False, f"❌ You need **{price:,}** coins but only have **{bal['wallet']:,}** in your wallet.", None
+    if bal["wallet"] < total:
+        return False, f"❌ You need **{total:,}** coins but only have **{bal['wallet']:,}** in your wallet.", None
 
-    update_balance(user_id, wallet=bal["wallet"] - price)
+    update_balance(user_id, wallet=bal["wallet"] - total)
 
     conn, cur = get_db()
     cur.execute(
-        "INSERT INTO inventory (user_id, item_id, quantity) VALUES (%s, %s, 1) "
-        "ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = inventory.quantity + 1",
-        (user_id, item_id),
+        "INSERT INTO inventory (user_id, item_id, quantity) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = inventory.quantity + %s",
+        (user_id, item_id, amount, amount),
     )
     conn.commit()
     cur.close()
     release_db(conn)
 
-    return True, f"✅ You bought **{name}** for **{price:,}** coins!", int(role_id) if role_id else None
+    bought = f"{amount}x **{name}**" if amount > 1 else f"**{name}**"
+    return True, f"✅ You bought {bought} for **{total:,}** coins!", int(role_id) if role_id else None
 
 
 def get_inventory(user_id: int):
@@ -2205,19 +2217,24 @@ def luck_chance(base: float, user_id) -> float:
     return min(0.95, base * (1 + 0.5 * stacks))
 
 
-def buy_global_item(user_id, item_key: str):
+def buy_global_item(user_id, item_key: str, amount: int = 1):
     item = GLOBAL_ITEMS[item_key]
-    if not item.get("consumable") and not item.get("stackable") and has_global_item(user_id, item_key):
-        return False, f"❌ You already own a **{item['name']}** — no need to buy another."
+    amount = max(1, int(amount))
+    if not item.get("consumable") and not item.get("stackable"):
+        if has_global_item(user_id, item_key):
+            return False, f"❌ You already own a **{item['name']}** — no need to buy another."
+        amount = 1
     bal = get_balance(user_id)
-    if bal["wallet"] < item["price"]:
-        return False, f"❌ You need **{item['price']:,}** coins but only have **{bal['wallet']:,}** in your wallet."
-    update_balance(user_id, wallet=bal["wallet"] - item["price"])
-    add_global_item(user_id, item_key, 1)
+    total = item["price"] * amount
+    if bal["wallet"] < total:
+        return False, f"❌ You need **{total:,}** coins but only have **{bal['wallet']:,}** in your wallet."
+    update_balance(user_id, wallet=bal["wallet"] - total)
+    add_global_item(user_id, item_key, amount)
     extra = ""
     if item.get("consumable"):
         extra = f"\nUse it with `.use {item_key}`"
-    return True, f"✅ You bought **{item['name']}** for **{item['price']:,}** coins!{extra}"
+    bought = f"{amount}x **{item['name']}**" if amount > 1 else f"**{item['name']}**"
+    return True, f"✅ You bought {bought} for **{total:,}** coins!{extra}"
 
 
 def use_global_item(user_id, item_key: str):
@@ -2256,7 +2273,7 @@ def build_shop_text(guild_id: int) -> str:
             desc_part = f" — {description}" if description else ""
             lines.append(f"┃ **#{item_id}** {name} — {price:,} coins{desc_part}")
     lines.append("┃")
-    lines.append("┃ Buy with `.buy vx` / `.buy gun` / `.buy <id>`")
+    lines.append("┃ Buy with `.buy vx 2` or `/shop` (pick item + amount)")
     lines.append("┃ Use potions with `.use vx` / `.use lucky`")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
@@ -4062,12 +4079,51 @@ async def rob_prefix(ctx: commands.Context, user: discord.User):
     await ctx.reply(do_rob(did(ctx.author.id), did(user.id)))
 
 
-@bot.tree.command(name="shop", description="View this server's shop")
-async def shop(interaction: discord.Interaction):
+SHOP_ITEM_CHOICES = [
+    app_commands.Choice(name="Vx — 100,000 coins", value="vx"),
+    app_commands.Choice(name="V9 — 200,000 coins", value="v9"),
+    app_commands.Choice(name="Lucky Potion — 500,000 coins", value="lucky"),
+    app_commands.Choice(name="Gun — 1,000 coins", value="gun"),
+    app_commands.Choice(name="Fishing Rod — 1,000 coins", value="fishing_rod"),
+    app_commands.Choice(name="Shovel — 1,000 coins", value="shovel"),
+    app_commands.Choice(name="Guard — 50,000 coins", value="guard"),
+]
+
+
+async def apply_shop_purchase(send_func, user, guild, item_name: str, amount: int = 1):
+    success, message, role_id = handle_buy(did(user.id), guild.id, item_name, amount)
+    if success and role_id is not None and isinstance(user, discord.Member):
+        role = guild.get_role(role_id)
+        if role is not None:
+            try:
+                await user.add_roles(role, reason="Shop purchase")
+                message += f"\n🏅 The **{role.name}** role has been added to you."
+            except discord.Forbidden:
+                message += "\n⚠️ Couldn't assign the role — check my role permissions."
+    await send_func(message)
+
+
+@bot.tree.command(name="shop", description="Open the shop — pick an item and how many to buy")
+@app_commands.describe(item="Item to buy", amount="How many to buy")
+@app_commands.choices(item=SHOP_ITEM_CHOICES)
+async def shop(
+    interaction: discord.Interaction,
+    item: app_commands.Choice[str] = None,
+    amount: app_commands.Range[int, 1, 99] = 1,
+):
     if interaction.guild is None:
         await interaction.response.send_message("❌ Use this command in a server.")
         return
-    await interaction.response.send_message(build_shop_text(interaction.guild.id))
+    if item is None:
+        await interaction.response.send_message(build_shop_text(interaction.guild.id))
+        return
+    await apply_shop_purchase(
+        interaction.response.send_message,
+        interaction.user,
+        interaction.guild,
+        item.value,
+        amount,
+    )
 
 
 @bot.command(name="shop")
@@ -4078,33 +4134,45 @@ async def shop_prefix(ctx: commands.Context):
     await ctx.reply(build_shop_text(ctx.guild.id))
 
 
-def handle_buy(user_id: int, guild_id: int, item_name: str):
+def handle_buy(user_id: int, guild_id: int, item_name: str, amount: int = 1):
     key = resolve_item_key(item_name)
     if key:
-        return buy_global_item(user_id, key) + (None,)
+        return buy_global_item(user_id, key, amount) + (None,)
     try:
         item_id = int(item_name)
     except ValueError:
         return False, "❌ Unknown item. Use `.shop` to see names and IDs.", None
-    return buy_shop_item(user_id, guild_id, item_id)
+    return buy_shop_item(user_id, guild_id, item_id, amount)
+
+
+def parse_buy_args(raw: str):
+    """Split '.buy vx 3' into (item_name, amount)."""
+    parts = raw.strip().split()
+    if not parts:
+        return "", 1
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return " ".join(parts[:-1]), max(1, int(parts[-1]))
+    return raw.strip(), 1
 
 
 @bot.tree.command(name="buy", description="Buy an item from the shop")
-@app_commands.describe(item="Item name (vx, gun, shovel...) or server item ID")
-async def buy(interaction: discord.Interaction, item: str):
+@app_commands.describe(item="Pick an item or type a server item ID", amount="How many to buy")
+@app_commands.choices(item=SHOP_ITEM_CHOICES)
+async def buy(
+    interaction: discord.Interaction,
+    item: app_commands.Choice[str],
+    amount: app_commands.Range[int, 1, 99] = 1,
+):
     if interaction.guild is None:
         await interaction.response.send_message("❌ Use this command in a server.")
         return
-    success, message, role_id = handle_buy(did(interaction.user.id), interaction.guild.id, item)
-    if success and role_id is not None and isinstance(interaction.user, discord.Member):
-        role = interaction.guild.get_role(role_id)
-        if role is not None:
-            try:
-                await interaction.user.add_roles(role, reason="Shop purchase")
-                message += f"\n🏅 The **{role.name}** role has been added to you."
-            except discord.Forbidden:
-                message += "\n⚠️ Couldn't assign the role — check my role permissions."
-    await interaction.response.send_message(message)
+    await apply_shop_purchase(
+        interaction.response.send_message,
+        interaction.user,
+        interaction.guild,
+        item.value,
+        amount,
+    )
 
 
 @bot.command(name="buy")
@@ -4112,16 +4180,8 @@ async def buy_prefix(ctx: commands.Context, *, item: str):
     if ctx.guild is None:
         await ctx.reply("❌ Use this command in a server.")
         return
-    success, message, role_id = handle_buy(did(ctx.author.id), ctx.guild.id, item)
-    if success and role_id is not None and isinstance(ctx.author, discord.Member):
-        role = ctx.guild.get_role(role_id)
-        if role is not None:
-            try:
-                await ctx.author.add_roles(role, reason="Shop purchase")
-                message += f"\n🏅 The **{role.name}** role has been added to you."
-            except discord.Forbidden:
-                message += "\n⚠️ Couldn't assign the role — check my role permissions."
-    await ctx.reply(message)
+    item_name, amount = parse_buy_args(item)
+    await apply_shop_purchase(ctx.reply, ctx.author, ctx.guild, item_name, amount)
 
 
 @bot.tree.command(name="use", description="Use a consumable item (vx, v9, lucky)")
