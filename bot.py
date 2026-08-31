@@ -26,10 +26,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.11.4"
+BOT_VERSION = "1.11.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.11.5",
+        "date": "2026-08-30",
+        "changes": [
+            "Rob no longer gets taxed — robbers keep 100% of what they steal. Only salary is taxed into the treasury now",
+        ],
+    },
     {
         "version": "1.11.4",
         "date": "2026-08-30",
@@ -336,7 +343,7 @@ ROB_SUCCESS_CHANCE = 0.45
 ROB_MAX_STEAL_PERCENT = 0.25
 ROB_FAIL_PENALTY_PERCENT = 0.10
 
-TAX_RATE = 0.10  # skimmed off salary and successful robs, feeds the server treasury
+TAX_RATE = 0.10  # skimmed off salary only (rob is untaxed), feeds the server treasury
 TREASURY_META_KEY = "treasury_balance"
 
 SALARY_INTERVAL_HOURS = 72  # every 3 days
@@ -2708,11 +2715,10 @@ def do_rob(robber_id: int, victim_id: int):
     if random.random() < luck_chance(ROB_SUCCESS_CHANCE, robber_id):
         stolen = int(victim_bal["wallet"] * random.uniform(0.05, ROB_MAX_STEAL_PERCENT))
         stolen = max(stolen, 1)
-        net, tax = apply_tax(stolen)
         update_balance(victim_id, wallet=victim_bal["wallet"] - stolen)
-        update_balance(robber_id, wallet=robber_bal["wallet"] + net)
+        update_balance(robber_id, wallet=robber_bal["wallet"] + stolen)
         newly_earned = grant_achievement(robber_id, "first_blood")
-        text = f"💰 You successfully robbed **{stolen:,}** coins! (Tax: {tax:,} → treasury. You keep **{net:,}**.)"
+        text = f"💰 You successfully robbed **{stolen:,}** coins! No tax on rob — it's all yours."
         if newly_earned:
             text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['first_blood']['label']}**"
         return text
@@ -3734,12 +3740,12 @@ async def jobs_prefix(ctx: commands.Context):
 
 @bot.tree.command(name="treasury", description="See the server treasury (funded by taxes)")
 async def treasury(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary and rob taxes)")
+    await interaction.response.send_message(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary tax — rob is untaxed)")
 
 
 @bot.command(name="treasury")
 async def treasury_prefix(ctx: commands.Context):
-    await ctx.reply(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary and rob taxes)")
+    await ctx.reply(f"🏛️ Server treasury: **${get_treasury():,}** (funded by salary tax — rob is untaxed)")
 
 
 # ---------- Pet commands ----------
