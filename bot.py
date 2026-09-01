@@ -26,10 +26,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.15.0"
+BOT_VERSION = "1.15.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.15.1",
+        "date": "2026-08-31",
+        "changes": [
+            "Fixed a money-integrity bug: the treasury and bot bank were read-then-written in two separate steps, so two things happening close together (two gambling losses, a rob fine landing during a loan payout, etc.) could silently overwrite each other and lose tracked money. Both are now atomic single SQL operations",
+            "Fixed a stale docstring claiming rob is taxed (it isn't, since 1.11.5)",
+        ],
+    },
     {
         "version": "1.15.0",
         "date": "2026-08-31",
@@ -791,6 +799,27 @@ def set_meta(key: str, value: str):
     release_db(conn)
 
 
+def _adjust_meta_int(key: str, delta: int) -> int:
+    """Atomically adds delta to a numeric bot_meta value in a single SQL
+    statement (creating the row at 0 first if needed) and returns the new
+    total. A separate get_meta()+set_meta() pair is NOT safe here — two
+    concurrent callers (e.g. two gambling losses landing at the same
+    moment) can race and one write silently clobbers the other."""
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO bot_meta (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = "
+        "  (GREATEST(0, COALESCE(bot_meta.value, '0')::bigint + %s))::text "
+        "RETURNING value",
+        (key, str(max(delta, 0)), delta),
+    )
+    new_value = int(cur.fetchone()[0])
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return new_value
+
+
 def get_treasury() -> int:
     value = get_meta(TREASURY_META_KEY)
     return int(value) if value else 0
@@ -799,7 +828,7 @@ def get_treasury() -> int:
 def add_to_treasury(amount: int):
     if amount <= 0:
         return
-    set_meta(TREASURY_META_KEY, str(get_treasury() + amount))
+    _adjust_meta_int(TREASURY_META_KEY, amount)
 
 
 def get_bot_bank() -> int:
@@ -810,17 +839,27 @@ def get_bot_bank() -> int:
 def add_to_bot_bank(amount: int):
     if amount <= 0:
         return
-    set_meta(BOT_BANK_KEY, str(get_bot_bank() + amount))
+    _adjust_meta_int(BOT_BANK_KEY, amount)
 
 
 def take_from_bot_bank(amount: int) -> bool:
+    """Atomically checks-and-subtracts in one statement so two people
+    can't both pass the 'is there enough' check against the same stale
+    balance and over-draw the bot bank (e.g. two loans taken at once)."""
     if amount <= 0:
         return True
-    current = get_bot_bank()
-    if current < amount:
-        return False
-    set_meta(BOT_BANK_KEY, str(current - amount))
-    return True
+    conn, cur = get_db()
+    cur.execute(
+        "UPDATE bot_meta SET value = (bot_meta.value::bigint - %s)::text "
+        "WHERE key = %s AND COALESCE(bot_meta.value, '0')::bigint >= %s "
+        "RETURNING value",
+        (amount, BOT_BANK_KEY, amount),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return row is not None
 
 
 def house_take(amount: int):
@@ -985,7 +1024,7 @@ def collect_overdue_loans():
 
 def apply_tax(amount: int, rate: float = TAX_RATE):
     """Splits an amount into (net, tax). The tax portion is added to the
-    server treasury. Use this on salary and successful robs."""
+    server treasury. Use this on salary (rob is untaxed as of 1.11.5)."""
     if amount <= 0:
         return amount, 0
     tax = int(amount * rate)
