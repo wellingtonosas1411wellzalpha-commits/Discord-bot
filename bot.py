@@ -26,10 +26,20 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.15.1"
+BOT_VERSION = "1.16.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.0",
+        "date": "2026-09-03",
+        "changes": [
+            "Added collectible cards: .col, .card, .claim, .duel",
+            "Owner spawn controls: .spawndrop on/off, .forcedrop, .addcard",
+            "Starter cards: Light Yagami, Wally West, Rimuru Tempest, Anos Voldigoad, Goku Kakarot, Satoru Gojo",
+            "Card pictures are stored in the cards/ folder so you do not need to hunt for links",
+        ],
+    },
     {
         "version": "1.15.1",
         "date": "2026-08-31",
@@ -573,6 +583,35 @@ def init_db():
             due_at DOUBLE PRECISION NOT NULL
         )
     """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS card_catalog (
+            card_key TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            tier INTEGER NOT NULL,
+            image_path TEXT,
+            image_url TEXT,
+            description TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_cards (
+            user_id TEXT NOT NULL,
+            card_key TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, card_key)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS card_spawns (
+            code TEXT PRIMARY KEY,
+            card_key TEXT NOT NULL,
+            channel_id TEXT,
+            expires_at DOUBLE PRECISION NOT NULL,
+            claimed_by TEXT
+        )
+    """)
+    seed_starter_cards(cur)
     conn.commit()
     cur.close()
     db_pool.putconn(conn)
@@ -1099,6 +1138,378 @@ def do_deposit(user_id: int, amount_str: str):
     )
 
 
+
+# ---------- Cards ----------
+
+CARDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cards")
+CARD_SPAWN_PER_DAY = 5
+CARD_CLAIM_SECONDS = 15 * 60
+CARD_SPAWN_TOGGLE_KEY = "card_spawndrop"
+CARD_SPAWN_CHANNEL_KEY = "card_spawn_channel"
+CARD_SPAWN_DAY_KEY = "card_spawn_day"
+CARD_SPAWN_COUNT_KEY = "card_spawn_count"
+
+STARTER_CARDS = [
+    ("light", "Light Yagami", 3, "cards/light.jpg", "A calm strategist who treats every fight like a puzzle."),
+    ("wally", "Wally West", 3, "cards/wally.jpg", "A lightning-fast hero who wins by outrunning the hit."),
+    ("rimuru", "Rimuru Tempest", 4, "cards/rimuru.jpg", "A slime monarch who adapts to almost any opponent."),
+    ("anos", "Anos Voldigoad", 5, "cards/anos.jpg", "A demon king whose power overwhelms most cards."),
+    ("goku", "Goku Kakarot", 5, "cards/goku.jpg", "A Saiyan warrior who grows stronger the longer a duel lasts."),
+    ("gojo", "Satoru Gojo", 4, "cards/gojo.jpg", "A sorcerer whose defense is almost impossible to break."),
+]
+
+pending_duels = {}  # target_id -> challenger_id
+
+
+def seed_starter_cards(cur):
+    for key, name, tier, path, desc in STARTER_CARDS:
+        cur.execute(
+            "INSERT INTO card_catalog (card_key, name, tier, image_path, description) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON CONFLICT (card_key) DO UPDATE SET "
+            "name = EXCLUDED.name, tier = EXCLUDED.tier, "
+            "image_path = COALESCE(card_catalog.image_path, EXCLUDED.image_path), "
+            "description = EXCLUDED.description",
+            (key, name, tier, path, desc),
+        )
+
+
+def list_catalog():
+    conn, cur = get_db()
+    cur.execute("SELECT card_key, name, tier, image_path, image_url, description FROM card_catalog ORDER BY name")
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def get_catalog_card(card_key: str):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT card_key, name, tier, image_path, image_url, description FROM card_catalog WHERE card_key = %s",
+        (card_key,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    release_db(conn)
+    return row
+
+
+def add_catalog_card(card_key: str, name: str, tier: int, image_path=None, image_url=None, description=""):
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO card_catalog (card_key, name, tier, image_path, image_url, description) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (card_key) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier, "
+        "image_path = COALESCE(EXCLUDED.image_path, card_catalog.image_path), "
+        "image_url = COALESCE(EXCLUDED.image_url, card_catalog.image_url), "
+        "description = EXCLUDED.description",
+        (card_key, name, tier, image_path, image_url, description),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def get_user_card_rows(user_id):
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT c.card_key, c.name, c.tier, c.image_path, c.image_url, c.description, u.quantity "
+        "FROM user_cards u JOIN card_catalog c ON c.card_key = u.card_key "
+        "WHERE u.user_id = %s AND u.quantity > 0 "
+        "ORDER BY c.name",
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    return rows
+
+
+def give_card(user_id, card_key: str, amount: int = 1):
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO user_cards (user_id, card_key, quantity) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id, card_key) DO UPDATE SET quantity = user_cards.quantity + %s",
+        (user_id, card_key, amount, amount),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+
+
+def card_image_file(image_path):
+    if not image_path:
+        return None
+    path = image_path
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), image_path)
+    if os.path.isfile(path):
+        return path
+    name = os.path.basename(image_path)
+    fallback = os.path.join(CARDS_DIR, name)
+    if os.path.isfile(fallback):
+        return fallback
+    return None
+
+
+def build_col_text(display_name: str, user_id) -> str:
+    rows = get_user_card_rows(user_id)
+    if not rows:
+        return f"🎴 **{display_name}** has no cards yet.\nClaim a spawn with `.claim <code>`."
+    lines = [f"╭━━━〔 🎴 {display_name}'s cards 〕━━━⬣", "┃"]
+    for i, (key, name, tier, *_rest, qty) in enumerate(rows, start=1):
+        lines.append(f"┃ `{i}.` {name}  ×{qty}  (T{tier})")
+    lines.append("┃")
+    lines.append("┃ View one with `.card <number>`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+
+async def send_card_view(destination_send, user_id, index_str: str, display_name: str):
+    rows = get_user_card_rows(user_id)
+    if not rows:
+        await destination_send(content=f"🎴 **{display_name}** has no cards yet.")
+        return
+    try:
+        index = int(index_str)
+    except (TypeError, ValueError):
+        await destination_send(content="❌ Usage: `.card <number>`")
+        return
+    if index < 1 or index > len(rows):
+        await destination_send(content=f"❌ That collection only has **{len(rows)}** card(s).")
+        return
+    key, name, tier, image_path, image_url, description, qty = rows[index - 1]
+    embed = discord.Embed(title=name, description=description or "No description.", color=discord.Color.gold())
+    embed.add_field(name="Card ID", value=key, inline=True)
+    embed.add_field(name="Index", value=str(index), inline=True)
+    embed.add_field(name="Tier", value=f"T{tier}", inline=True)
+    embed.add_field(name="Owned", value=f"{qty}x", inline=True)
+    file = None
+    local = card_image_file(image_path)
+    if local:
+        filename = os.path.basename(local)
+        file = discord.File(local, filename=filename)
+        embed.set_image(url=f"attachment://{filename}")
+    elif image_url:
+        embed.set_image(url=image_url)
+    if file:
+        await destination_send(embed=embed, file=file)
+    else:
+        await destination_send(embed=embed)
+
+
+def new_claim_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(20):
+        code = "".join(random.choice(alphabet) for _ in range(5))
+        conn, cur = get_db()
+        cur.execute("SELECT 1 FROM card_spawns WHERE code = %s", (code,))
+        exists = cur.fetchone()
+        cur.close()
+        release_db(conn)
+        if not exists:
+            return code
+    return "".join(random.choice(alphabet) for _ in range(6))
+
+
+def spawn_day_stamp() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def spawns_today() -> int:
+    day = spawn_day_stamp()
+    saved_day = get_meta(CARD_SPAWN_DAY_KEY)
+    if saved_day != day:
+        set_meta(CARD_SPAWN_DAY_KEY, day)
+        set_meta(CARD_SPAWN_COUNT_KEY, "0")
+        return 0
+    value = get_meta(CARD_SPAWN_COUNT_KEY)
+    return int(value) if value else 0
+
+
+def bump_spawn_count():
+    used = spawns_today() + 1
+    set_meta(CARD_SPAWN_DAY_KEY, spawn_day_stamp())
+    set_meta(CARD_SPAWN_COUNT_KEY, str(used))
+    return used
+
+
+def pick_spawn_card():
+    rows = list_catalog()
+    if not rows:
+        return None
+    weights = []
+    for row in rows:
+        tier = max(1, min(5, int(row[2])))
+        weights.append(6 - tier)
+    return random.choices(rows, weights=weights, k=1)[0]
+
+
+def create_spawn_record(card_key: str, channel_id: int):
+    code = new_claim_code()
+    expires = time.time() + CARD_CLAIM_SECONDS
+    conn, cur = get_db()
+    cur.execute(
+        "INSERT INTO card_spawns (code, card_key, channel_id, expires_at) VALUES (%s, %s, %s, %s)",
+        (code, card_key, str(channel_id), expires),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    return code, expires
+
+
+def claim_spawn(user_id, code: str):
+    code = (code or "").strip().upper()
+    if not code:
+        return False, "❌ Usage: `.claim <code>`"
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT card_key, expires_at, claimed_by FROM card_spawns WHERE code = %s",
+        (code,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.close()
+        release_db(conn)
+        return False, "❌ That claim code is not active."
+    card_key, expires_at, claimed_by = row
+    if claimed_by:
+        cur.close()
+        release_db(conn)
+        return False, "❌ That card was already claimed."
+    if time.time() > float(expires_at):
+        cur.close()
+        release_db(conn)
+        return False, "❌ That spawn expired."
+    cur.execute(
+        "UPDATE card_spawns SET claimed_by = %s WHERE code = %s AND claimed_by IS NULL",
+        (user_id, code),
+    )
+    updated = cur.rowcount
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    if not updated:
+        return False, "❌ Someone else claimed it first."
+    give_card(user_id, card_key, 1)
+    card = get_catalog_card(card_key)
+    name = card[1] if card else card_key
+    return True, f"✅ You claimed **{name}**!\nSee it with `.col` or `.card 1`"
+
+
+async def post_card_spawn(channel, force: bool = False):
+    if channel is None:
+        return False, "❌ No spawn channel set. Use `.spawndrop on` in a server channel."
+    if not force and spawns_today() >= CARD_SPAWN_PER_DAY:
+        return False, f"❌ Daily spawn limit reached ({CARD_SPAWN_PER_DAY}/day)."
+    card = pick_spawn_card()
+    if card is None:
+        return False, "❌ No cards in the catalog yet."
+    card_key, name, tier, image_path, image_url, description = card
+    code, expires = create_spawn_record(card_key, channel.id)
+    if not force:
+        bump_spawn_count()
+    embed = discord.Embed(
+        title="🎴 A card dropped!",
+        description=(
+            f"**{name}**  •  Tier T{tier}\n"
+            f"{description or ''}\n\n"
+            f"Claim with `.claim {code}`\n"
+            f"Expires in {CARD_CLAIM_SECONDS // 60} minutes."
+        ),
+        color=discord.Color.purple(),
+    )
+    file = None
+    local = card_image_file(image_path)
+    if local:
+        filename = os.path.basename(local)
+        file = discord.File(local, filename=filename)
+        embed.set_image(url=f"attachment://{filename}")
+    elif image_url:
+        embed.set_image(url=image_url)
+    if file:
+        await channel.send(embed=embed, file=file)
+    else:
+        await channel.send(embed=embed)
+    return True, code
+
+
+def card_power(tier: int) -> int:
+    return int(tier) * 10 + random.randint(1, 12)
+
+
+def resolve_duel(challenger_id, target_id):
+    a_cards = get_user_card_rows(challenger_id)
+    b_cards = get_user_card_rows(target_id)
+    if not a_cards:
+        return "❌ The challenger has no cards."
+    if not b_cards:
+        return "❌ The opponent has no cards."
+    a = max(a_cards, key=lambda r: r[2])
+    b = max(b_cards, key=lambda r: r[2])
+    a_power = card_power(a[2])
+    b_power = card_power(b[2])
+    if a_power == b_power:
+        result = "It's a draw!"
+    elif a_power > b_power:
+        result = "The challenger wins!"
+    else:
+        result = "The opponent wins!"
+    return (
+        "╭━━━〔 ⚔️ ᴅᴜᴇʟ 〕━━━⬣\n"
+        f"┃ Challenger: **{a[1]}** T{a[2]} → {a_power}\n"
+        f"┃ Opponent: **{b[1]}** T{b[2]} → {b_power}\n"
+        f"┃ {result}\n"
+        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    )
+
+
+class DuelView(discord.ui.View):
+    def __init__(self, challenger_id: int, target_id: int):
+        super().__init__(timeout=60)
+        self.challenger_id = challenger_id
+        self.target_id = target_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.target_id:
+            await interaction.response.send_message("❌ This duel is not for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending_duels.pop(did(self.target_id), None)
+        text = resolve_duel(did(self.challenger_id), did(self.target_id))
+        self.stop()
+        await interaction.response.edit_message(content=text, view=None)
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending_duels.pop(did(self.target_id), None)
+        self.stop()
+        await interaction.response.edit_message(content="❌ Duel declined.", view=None)
+
+
+@tasks.loop(hours=3)
+async def card_spawn_loop():
+    if get_meta(CARD_SPAWN_TOGGLE_KEY) != "on":
+        return
+    channel_id = get_meta(CARD_SPAWN_CHANNEL_KEY)
+    if not channel_id:
+        return
+    try:
+        channel = bot.get_channel(int(channel_id)) or await bot.fetch_channel(int(channel_id))
+    except Exception:
+        return
+    try:
+        await post_card_spawn(channel, force=False)
+    except Exception as e:
+        print(f"card spawn failed: {e}")
+
+
+
 COMMAND_HELP = {
     "ping": "Check the bot's latency.\nUsage: `.ping`",
     "8ball": "Ask the magic 8-ball a question.\nUsage: `.8ball <question>`",
@@ -1165,6 +1576,13 @@ COMMAND_HELP = {
     "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
     "recharge": "[Owner] Add 50,000,000 coins to your wallet. 3 uses per day.\nUsage: `.recharge`",
     "reset": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
+    "col": "Show the names of cards you own.\nUsage: `.col`",
+    "card": "Show one card from your collection, including its picture.\nUsage: `.card <number>`",
+    "claim": "Claim a spawned card with its code.\nUsage: `.claim <code>`",
+    "duel": "Challenge someone to a card duel. You both need at least one card.\nUsage: `.duel @user`",
+    "spawndrop": "[Owner] Turn automatic card drops on or off in this channel.\nUsage: `.spawndrop on` / `.spawndrop off`",
+    "forcedrop": "[Owner] Force a card to spawn now.\nUsage: `.forcedrop`",
+    "addcard": "[Owner] Add a new card. Attach a picture to skip looking for a link.\nUsage: `.addcard <id> | <name> | <tier> | <description>`",
 }
 
 
@@ -1231,6 +1649,12 @@ def build_menu_text():
         "┃ ── Achievements ──\n"
         "┃ • achievements\n"
         "┃\n"
+        "┃ ── Cards ──\n"
+        "┃ • col\n"
+        "┃ • card\n"
+        "┃ • claim\n"
+        "┃ • duel\n"
+        "┃\n"
         "┃ ── Market ──\n"
         "┃ • sell\n"
         "┃ • market\n"
@@ -1272,6 +1696,9 @@ def build_menu_text():
         "┃ • clearcache\n"
         "┃ • recharge\n"
         "┃ • reset\n"
+        "┃ • spawndrop\n"
+        "┃ • forcedrop\n"
+        "┃ • addcard\n"
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
@@ -3086,6 +3513,8 @@ async def on_ready():
         bank_interest_loop.start()
     if not loan_collect_loop.is_running():
         loan_collect_loop.start()
+    if not card_spawn_loop.is_running():
+        card_spawn_loop.start()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash command(s)")
@@ -4881,6 +5310,142 @@ async def broadcast_owner_message(text: str, ping_everyone: bool = True):
         except discord.HTTPException:
             failed += 1
     return sent, failed
+
+
+
+@bot.command(name="col", aliases=["collection", "cards"])
+async def col_prefix(ctx: commands.Context, user: discord.User = None):
+    target = user or ctx.author
+    await ctx.reply(build_col_text(target.display_name, did(target.id)))
+
+
+@bot.tree.command(name="col", description="Show your card collection")
+@app_commands.describe(user="Leave blank for yourself")
+async def col_slash(interaction: discord.Interaction, user: discord.User = None):
+    target = user or interaction.user
+    await interaction.response.send_message(build_col_text(target.display_name, did(target.id)))
+
+
+@bot.command(name="card")
+async def card_prefix(ctx: commands.Context, index: str = ""):
+    async def send(**kwargs):
+        await ctx.reply(**kwargs)
+    await send_card_view(send, did(ctx.author.id), index, ctx.author.display_name)
+
+
+@bot.tree.command(name="card", description="Show one card from your collection")
+@app_commands.describe(index="Collection number from .col")
+async def card_slash(interaction: discord.Interaction, index: str):
+    await interaction.response.defer()
+    async def send(**kwargs):
+        await interaction.followup.send(**kwargs)
+    await send_card_view(send, did(interaction.user.id), index, interaction.user.display_name)
+
+
+@bot.command(name="claim")
+async def claim_prefix(ctx: commands.Context, code: str = ""):
+    ok, message = claim_spawn(did(ctx.author.id), code)
+    await ctx.reply(message)
+
+
+@bot.tree.command(name="claim", description="Claim a spawned card")
+@app_commands.describe(code="The code from the spawn message")
+async def claim_slash(interaction: discord.Interaction, code: str):
+    ok, message = claim_spawn(did(interaction.user.id), code)
+    await interaction.response.send_message(message)
+
+
+@bot.command(name="duel")
+async def duel_prefix(ctx: commands.Context, user: discord.Member = None):
+    if user is None:
+        await ctx.reply("❌ Usage: `.duel @user`")
+        return
+    if user.bot or user.id == ctx.author.id:
+        await ctx.reply("❌ Challenge a real player, not yourself or a bot.")
+        return
+    if not get_user_card_rows(did(ctx.author.id)):
+        await ctx.reply("❌ You have no cards to duel with.")
+        return
+    if not get_user_card_rows(did(user.id)):
+        await ctx.reply(f"❌ **{user.display_name}** has no cards.")
+        return
+    pending_duels[did(user.id)] = did(ctx.author.id)
+    view = DuelView(ctx.author.id, user.id)
+    await ctx.reply(f"⚔️ {user.mention}, {ctx.author.display_name} challenged you to a card duel.", view=view)
+
+
+@bot.tree.command(name="duel", description="Challenge someone to a card duel")
+@app_commands.describe(user="The player to challenge")
+async def duel_slash(interaction: discord.Interaction, user: discord.Member):
+    if user.bot or user.id == interaction.user.id:
+        await interaction.response.send_message("❌ Challenge a real player, not yourself or a bot.")
+        return
+    if not get_user_card_rows(did(interaction.user.id)):
+        await interaction.response.send_message("❌ You have no cards to duel with.")
+        return
+    if not get_user_card_rows(did(user.id)):
+        await interaction.response.send_message(f"❌ **{user.display_name}** has no cards.")
+        return
+    pending_duels[did(user.id)] = did(interaction.user.id)
+    view = DuelView(interaction.user.id, user.id)
+    await interaction.response.send_message(
+        f"⚔️ {user.mention}, {interaction.user.display_name} challenged you to a card duel.",
+        view=view,
+    )
+
+
+@bot.command(name="spawndrop")
+@commands.is_owner()
+async def spawndrop_prefix(ctx: commands.Context, state: str = ""):
+    state = state.lower().strip()
+    if state not in ("on", "off"):
+        await ctx.reply("❌ Usage: `.spawndrop on` or `.spawndrop off`")
+        return
+    if ctx.guild is None:
+        await ctx.reply("❌ Use this in a server channel.")
+        return
+    set_meta(CARD_SPAWN_TOGGLE_KEY, state)
+    if state == "on":
+        set_meta(CARD_SPAWN_CHANNEL_KEY, str(ctx.channel.id))
+        await ctx.reply(f"✅ Card drops **ON** in this channel. Max **{CARD_SPAWN_PER_DAY}** per day.")
+    else:
+        await ctx.reply("✅ Card drops **OFF**.")
+
+
+@bot.command(name="forcedrop")
+@commands.is_owner()
+async def forcedrop_prefix(ctx: commands.Context):
+    ok, message = await post_card_spawn(ctx.channel, force=True)
+    if not ok:
+        await ctx.reply(message)
+
+
+@bot.command(name="addcard")
+@commands.is_owner()
+async def addcard_prefix(ctx: commands.Context, *, raw: str = ""):
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) < 3:
+        await ctx.reply("❌ Usage: `.addcard <id> | <name> | <tier> | <description>`\nYou can attach a picture too.")
+        return
+    card_key = parts[0].lower().replace(" ", "_")
+    name = parts[1]
+    try:
+        tier = int(parts[2])
+    except ValueError:
+        await ctx.reply("❌ Tier must be a number from 1 to 5.")
+        return
+    if not (1 <= tier <= 5):
+        await ctx.reply("❌ Tier must be 1 to 5.")
+        return
+    description = parts[3] if len(parts) > 3 else ""
+    image_url = None
+    image_path = None
+    if ctx.message.attachments:
+        image_url = ctx.message.attachments[0].url
+    add_catalog_card(card_key, name, tier, image_path=image_path, image_url=image_url, description=description)
+    extra = " Picture saved from your attachment." if image_url else " Add a picture next time by attaching one."
+    await ctx.reply(f"✅ Card **{name}** (`{card_key}`) T{tier} added.{extra}")
+
 
 
 @bot.event
