@@ -3,9 +3,11 @@
 
 import os
 import sys
+import hashlib
 
+_HASH = "90b011ac65424dc1df64f9de8cd56edb944e39a2ad233325cee6b15bf25d36ce"
 _KEY = os.environ.get("KIRA_KEY", "")
-if _KEY != "KirAiZENin":
+if hashlib.sha256(_KEY.encode()).hexdigest() != _HASH:
     print("Unauthorized.")
     sys.exit(1)
 
