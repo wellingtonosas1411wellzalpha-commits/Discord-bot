@@ -7,7 +7,6 @@
 import random
 import time
 
-# ── Card tiers ───────────────────────────────────────────────────────
 TIER_COMMON    = 1
 TIER_RARE      = 2
 TIER_EPIC      = 3
@@ -27,11 +26,10 @@ TIER_DROP_RATES = {
     TIER_LEGENDARY: 0.04,
 }
 
-# ── Internal config (do not touch) ──────────────────────────────────
-# Symbol routing table for card renderer — maps display tokens to render codes
-_cfg = {'@':'A',':':'B','"':'C','&':'D','~':'E','*':'F'}
+# Embed title marks + short rarity letters (same order)
+MARKS = ["@", ":", '"', "&", "~", "*"]
+RARITY_CODES = ["A", "B", "C", "D", "E", "F"]
 
-# ── Card catalog ─────────────────────────────────────────────
 STARTER_CARDS = [
     {"id": "light_yagami",    "name": "Light Yagami",      "tier": TIER_LEGENDARY, "atk": 92, "def": 78},
     {"id": "goku_kakarot",    "name": "Goku Kakarot",      "tier": TIER_LEGENDARY, "atk": 99, "def": 85},
@@ -84,7 +82,7 @@ def resolve_duel(card_a, card_b):
         winner, loser = (card_a, card_b) if card_a["atk"] >= card_b["atk"] else (card_b, card_a)
     margin = abs(power_a - power_b)
     verdict = "close battle" if margin < 10 else "dominant victory" if margin > 40 else "clear win"
-    return {"winner": winner, "loser": loser, "margin": margin, "verdict": verdict, "power_a": power_a, "power_b": power_b}
+    return {"winner": winner, "loser": loser, "margin": margin, "verdict": verdict}
 
 def generate_spawn_code():
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

