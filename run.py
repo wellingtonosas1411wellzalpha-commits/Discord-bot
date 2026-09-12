@@ -2,16 +2,21 @@
 # Do not modify this file.
 
 import os
+import sys
+
+_KEY = os.environ.get("KIRA_KEY", "")
+if _KEY != "KirAiZENin":
+    print("Unauthorized.")
+    sys.exit(1)
 
 def _decode(s: str) -> str:
-    # Cipher tokens, longest first (order matters for greedy parse)
     TOKENS = [
-        ('<>|~', 'A'),  # 4-char tokens first
+        ('<>|~', 'A'),
         ('|~~~', 'E'),
-        ('|<>',  'B'),  # 3-char tokens
+        ('|<>',  'B'),
         ('<>|',  'D'),
         ('|~~',  'F'),
-        ('(',    'C'),  # 1-char token last
+        ('(',    'C'),
     ]
     JUNK   = set('#%₦¥')
     DIGITS = set('0123456789')
@@ -20,10 +25,10 @@ def _decode(s: str) -> str:
     i = 0
     while i < len(s):
         ch = s[i]
-        if ch in JUNK:          # junk — skip
+        if ch in JUNK:
             i += 1
             continue
-        if ch in DIGITS:        # literal hex digit
+        if ch in DIGITS:
             result.append(ch)
             i += 1
             continue
@@ -35,7 +40,7 @@ def _decode(s: str) -> str:
                 matched = True
                 break
         if not matched:
-            i += 1              # unrecognised char — skip
+            i += 1
 
     return bytes.fromhex(''.join(result)).decode('utf-8')
 
