@@ -3,11 +3,11 @@
 <h1 align="center"><b>🤖 XEPHON CORE</b></h1>
 
 <p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=⚡+Advanced+Discord+Economy+Bot;🧠+XephonGPT+%7C+Fast+%7C+Secure;🔥+Developed+By+Wellington+Osas" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=⚡+Advanced+Discord+Economy+Bot;🧠+XephonGPT+%7C+Fast+%7C+Secure;🔥+Developed+By+kira" />
 </p>
 
 <p align="center">
-  <img src="assets/banner.jpg" width="760" style="border-radius: 16px;"/>
+  <img src="assets/banner.png" width="760" style="border-radius: 16px;"/>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 Xephon is a next-generation **Discord bot** built for servers that want a full economy, levels, jobs, pets, and games in one system.
 
-> 👑 **Engineered & Developed by Wellington Osas**
+> 👑 **Engineered & Developed by kira**
 
 ✨ **Designed specifically for:**
 * 💸 Real wallet, bank, loans, and a living market
@@ -158,7 +158,7 @@ On Render, start command is `python start.py`.
 
 ## 📜 License & Support
 
-Built by **Wellington Osas**.
+Built by **kira**.
 
 ⭐ **Star the repository**  
 🍴 **Fork it and build on it**  
