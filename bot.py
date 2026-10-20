@@ -27,10 +27,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.1"
+BOT_VERSION = "1.16.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.2",
+        "date": "2026-10-20",
+        "changes": [
+            "Xephon sets itself online when it connects to Discord",
+        ],
+    },
     {
         "version": "1.16.1",
         "date": "2026-10-20",
@@ -3321,6 +3328,14 @@ async def bank_interest_loop():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    try:
+        await bot.change_presence(
+            status=discord.Status.online,
+            activity=discord.Game(name="Xephon"),
+        )
+        print("Xephon presence set to online")
+    except Exception as e:
+        print(f"Could not set online presence: {e}")
     if not salary_payout_loop.is_running():
         salary_payout_loop.start()
     if not bank_interest_loop.is_running():
