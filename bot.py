@@ -27,10 +27,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.2"
+BOT_VERSION = "1.16.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.3",
+        "date": "2026-10-20",
+        "changes": [
+            "Retry Discord login if Cloudflare rate-limits the host",
+        ],
+    },
     {
         "version": "1.16.2",
         "date": "2026-10-20",
@@ -5334,4 +5341,15 @@ if __name__ == "__main__":
 
     threading.Thread(target=run_keep_alive, daemon=True).start()
 
-    bot.run(TOKEN)
+    for attempt in range(1, 9):
+        try:
+            bot.run(TOKEN)
+            break
+        except discord.HTTPException as e:
+            if getattr(e, "status", None) != 429 and "1015" not in str(e):
+                raise
+            wait = min(300, 30 * attempt)
+            print(f"Discord rate-limited this host. Retry {attempt}/8 in {wait}s.")
+            time.sleep(wait)
+    else:
+        raise RuntimeError("Discord kept rate-limiting this host. Wait and deploy once.")
