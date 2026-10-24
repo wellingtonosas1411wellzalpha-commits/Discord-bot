@@ -1,4 +1,5 @@
 import os
+import sys
 import urllib.request
 import random
 import asyncio
@@ -27,10 +28,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.4"
+BOT_VERSION = "1.16.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.5",
+        "date": "2026-10-24",
+        "changes": [
+            "Discord login retry now restarts the process instead of reusing a closed session",
+        ],
+    },
     {
         "version": "1.16.4",
         "date": "2026-10-24",
@@ -5359,11 +5367,17 @@ if __name__ == "__main__":
         try:
             bot.run(TOKEN)
             break
-        except discord.HTTPException as e:
-            if getattr(e, "status", None) != 429 and "1015" not in str(e):
+        except Exception as e:
+            text_err = str(e)
+            rate_limited = (
+                isinstance(e, discord.HTTPException)
+                and (getattr(e, "status", None) == 429 or "1015" in text_err or "rate" in text_err.lower())
+            ) or "Session is closed" in text_err or "1015" in text_err
+            if not rate_limited:
                 raise
             wait = min(300, 30 * attempt)
-            print(f"Discord rate-limited this host. Retry {attempt}/8 in {wait}s.")
+            print(f"Discord login failed. Fresh restart in {wait}s. ({e.__class__.__name__})")
             time.sleep(wait)
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
     else:
         raise RuntimeError("Discord kept rate-limiting this host. Wait and deploy once.")
