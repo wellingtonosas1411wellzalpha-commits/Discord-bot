@@ -27,10 +27,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.3"
+BOT_VERSION = "1.16.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.4",
+        "date": "2026-10-24",
+        "changes": [
+            "Slash commands now sync to every server so / works immediately",
+        ],
+    },
     {
         "version": "1.16.3",
         "date": "2026-10-20",
@@ -3351,7 +3358,14 @@ async def on_ready():
         loan_collect_loop.start()
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash command(s)")
+        print(f"Synced {len(synced)} global slash command(s)")
+        for guild in bot.guilds:
+            try:
+                bot.tree.copy_global_to(guild=guild)
+                guild_synced = await bot.tree.sync(guild=guild)
+                print(f"Synced {len(guild_synced)} slash command(s) to {guild.name}")
+            except Exception as e:
+                print(f"Guild slash sync failed for {guild.name}: {e}")
         current_names = sorted(set(c.name for c in synced))
         previous_raw = get_meta("command_list")
         if previous_raw is not None:
