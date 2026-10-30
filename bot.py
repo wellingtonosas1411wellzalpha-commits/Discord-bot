@@ -28,10 +28,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.7"
+BOT_VERSION = "1.16.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.8",
+        "date": "2026-10-30",
+        "changes": [
+            ".ptag now mentions every member one by one",
+            "XephonGPT knows the creator is Kira",
+        ],
+    },
     {
         "version": "1.16.7",
         "date": "2026-10-30",
@@ -338,6 +346,7 @@ psutil.cpu_percent(interval=None)  # prime the reading
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 
 class AuthCheckedTree(app_commands.CommandTree):
@@ -1391,7 +1400,7 @@ COMMAND_HELP = {
     "cds": "Show your cooldowns.\nUsage: `.cds`",
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
-    "ptag": "[Admin] Delete your message, then tag everyone with it.\nUsage: `.ptag <message>`",
+    "ptag": "[Admin] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
     "myjob": "See your current job and salary.\nUsage: `.myjob`",
@@ -3463,8 +3472,8 @@ def get_joke():
 def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) -> str:
     base = (
         "You are XephonGPT, a coding assistant built into a Discord bot. "
-        "You were created by Xephon. If anyone asks who made you or who your creator is, "
-        "answer that Xephon created you. Never mention Meta, Llama, or any other company/model name. "
+        "You were created by Kira. If anyone asks who made you or who your creator is, "
+        "answer that Kira created you. Never mention Meta, Llama, or any other company/model name. "
         "Use markdown code blocks for code. Keep explanations clear."
     )
 
@@ -3489,8 +3498,8 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
 
     if is_creator:
         prompt += (
-            " Important: the person you are talking to right now is Xephon, your creator. "
-            "If they ask who they are or who created you, tell them they are Xephon."
+            " Important: the person you are talking to right now is Kira, your creator. "
+            "If they ask who they are, tell them they are Kira. If they ask who created you, say Kira."
         )
     return prompt
 
@@ -5196,8 +5205,34 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
     await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
 
 
-@bot.tree.command(name="ptag", description="Delete your message, then tag everyone")
-@app_commands.describe(message="Message to send with the tag")
+async def send_member_tags(channel, text: str):
+    guild = channel.guild
+    if not guild.chunked:
+        await guild.chunk()
+    members = [m for m in guild.members if not m.bot]
+    if not members:
+        await channel.send(text)
+        return 0
+    mentions = [m.mention for m in members]
+    chunks = []
+    current = text.strip()
+    for mention in mentions:
+        piece = f"{current} {mention}".strip()
+        if len(piece) > 1900:
+            chunks.append(current)
+            current = mention
+        else:
+            current = piece
+    if current:
+        chunks.append(current)
+    allow = discord.AllowedMentions(everyone=False, users=True, roles=False)
+    for chunk in chunks:
+        await channel.send(chunk, allowed_mentions=allow)
+    return len(members)
+
+
+@bot.tree.command(name="ptag", description="Delete your message, then mention every member")
+@app_commands.describe(message="Message to send with the tags")
 async def ptag(interaction: discord.Interaction, message: str):
     if interaction.guild is None:
         await interaction.response.send_message("❌ Use this in a server.", ephemeral=True)
@@ -5209,10 +5244,9 @@ async def ptag(interaction: discord.Interaction, message: str):
     if not allowed:
         await interaction.response.send_message("❌ You need Administrator to use this.", ephemeral=True)
         return
-    await interaction.response.send_message(
-        f"@everyone {message}",
-        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
-    )
+    await interaction.response.defer(ephemeral=True)
+    count = await send_member_tags(interaction.channel, message)
+    await interaction.followup.send(f"Tagged {count} member(s).", ephemeral=True)
 
 
 @bot.command(name="ptag")
@@ -5226,10 +5260,7 @@ async def ptag_prefix(ctx: commands.Context, *, message: str):
         await ctx.message.delete()
     except Exception as e:
         print(f"ptag delete failed: {e}")
-    await ctx.send(
-        f"@everyone {message}",
-        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
-    )
+    await send_member_tags(ctx.channel, message)
 
 
 @bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
