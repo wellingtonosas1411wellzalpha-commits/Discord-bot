@@ -29,10 +29,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.17.0"
+BOT_VERSION = "1.17.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.17.1",
+        "date": "2026-10-30",
+        "changes": [
+            "Fixed No Command Mode so normal sentences are actually handled",
+            "NCM now replies when it does not understand",
+            "Command errors now reply instead of failing silently",
+        ],
+    },
     {
         "version": "1.17.0",
         "date": "2026-10-30",
@@ -425,7 +434,16 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
             mention_author=False,
         )
         return
-    raise error
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.reply(f"❌ Missing `{error.param.name}`. Try `.help {ctx.command}`.", mention_author=False)
+        return
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.BadArgument):
+        await ctx.reply("❌ I couldn't read one of those arguments.", mention_author=False)
+        return
+    print(f"Command error in {getattr(ctx.command, 'name', '?')}: {error}")
+    await ctx.reply("❌ That command failed. Try again.", mention_author=False)
 
 afk_users = {}  # user_id -> reason
 kiragpt_sessions = {}  # user_id -> {"active": bool, "history": list}
@@ -5323,31 +5341,6 @@ async def parse_ncm_request(text: str) -> tuple:
 async def run_ncm_command(message, command: str, args: str):
     content = f".{command}" + (f" {args}" if args else "")
     message.content = content
-    # No Command Mode
-    if message.guild is not None and not message.content.startswith(bot.command_prefix):
-        user_id = did(message.author.id)
-        lowered = message.content.strip().lower()
-        if user_id in ncm_pending:
-            pending = ncm_pending.pop(user_id)
-            if lowered in ("yes", "y", "confirm"):
-                await run_ncm_command(message, pending["command"], pending["args"])
-            else:
-                await message.reply("❌ Cancelled.", mention_author=False)
-            return
-        if ncm_is_on(user_id) and message.content.strip() and len(message.content) <= 300:
-            command, args = await parse_ncm_request(message.content)
-            if command:
-                if command in NCM_CONFIRM:
-                    ncm_pending[user_id] = {"command": command, "args": args}
-                    shown = f".{command}" + (f" {args}" if args else "")
-                    await message.reply(
-                        f"Run `{shown}`? Say **yes** to confirm or anything else to cancel.",
-                        mention_author=False,
-                    )
-                else:
-                    await run_ncm_command(message, command, args)
-                return
-
     await bot.process_commands(message)
 
 
@@ -5521,6 +5514,37 @@ async def on_message(message: discord.Message):
                 return
         except Exception as e:
             print(f"XephonGPT reply handling failed: {e}")
+
+    # No Command Mode
+    if message.guild is not None and message.content and not message.content.startswith("."):
+        user_id = did(message.author.id)
+        lowered = message.content.strip().lower()
+        if user_id in ncm_pending:
+            pending = ncm_pending.pop(user_id)
+            if lowered in ("yes", "y", "confirm", "yeah", "ok", "okay"):
+                await run_ncm_command(message, pending["command"], pending["args"])
+            else:
+                await message.reply("❌ Cancelled.", mention_author=False)
+            return
+        if ncm_is_on(user_id) and message.content.strip() and len(message.content) <= 300:
+            async with message.channel.typing():
+                command, args = await parse_ncm_request(message.content)
+            if not command:
+                await message.reply(
+                    "❌ I couldn't match that to a command. Try again, or use `.menu`.",
+                    mention_author=False,
+                )
+                return
+            if command in NCM_CONFIRM:
+                ncm_pending[user_id] = {"command": command, "args": args}
+                shown = f".{command}" + (f" {args}" if args else "")
+                await message.reply(
+                    f"Run `{shown}`? Say **yes** to confirm or anything else to cancel.",
+                    mention_author=False,
+                )
+            else:
+                await run_ncm_command(message, command, args)
+            return
 
     await bot.process_commands(message)
 
