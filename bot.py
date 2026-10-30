@@ -28,10 +28,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.5"
+BOT_VERSION = "1.16.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.6",
+        "date": "2026-10-30",
+        "changes": [
+            "Added .ptag — deletes your message, then posts it and tags everyone",
+        ],
+    },
     {
         "version": "1.16.5",
         "date": "2026-10-24",
@@ -1377,6 +1384,7 @@ COMMAND_HELP = {
     "cds": "Show your cooldowns.\nUsage: `.cds`",
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
+    "ptag": "[Admin] Delete your message, then tag everyone with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
     "myjob": "See your current job and salary.\nUsage: `.myjob`",
@@ -1495,6 +1503,7 @@ def build_menu_text():
         "┃ • cds\n"
         "┃ • donate\n"
         "┃ • help\n"
+        "┃ • ptag\n"
         "┃\n"
         "┃ ── Admin ──\n"
         "┃ • give\n"
@@ -5178,6 +5187,42 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
         await ctx.reply(error)
         return
     await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
+
+
+@bot.tree.command(name="ptag", description="Delete your message, then tag everyone")
+@app_commands.describe(message="Message to send with the tag")
+async def ptag(interaction: discord.Interaction, message: str):
+    if interaction.guild is None:
+        await interaction.response.send_message("❌ Use this in a server.", ephemeral=True)
+        return
+    member = interaction.user
+    allowed = await interaction.client.is_owner(member) or getattr(member, "guild_permissions", None) and (
+        member.guild_permissions.administrator or member.guild_permissions.mention_everyone
+    )
+    if not allowed:
+        await interaction.response.send_message("❌ You need Administrator to use this.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        f"@everyone {message}",
+        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
+    )
+
+
+@bot.command(name="ptag")
+@commands.guild_only()
+async def ptag_prefix(ctx: commands.Context, *, message: str):
+    allowed = await bot.is_owner(ctx.author) or ctx.author.guild_permissions.administrator or ctx.author.guild_permissions.mention_everyone
+    if not allowed:
+        await ctx.reply("❌ You need Administrator to use this.", mention_author=False)
+        return
+    try:
+        await ctx.message.delete()
+    except Exception as e:
+        print(f"ptag delete failed: {e}")
+    await ctx.send(
+        f"@everyone {message}",
+        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
+    )
 
 
 @bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
