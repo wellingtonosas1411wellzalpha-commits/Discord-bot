@@ -28,10 +28,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.6"
+BOT_VERSION = "1.16.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.16.7",
+        "date": "2026-10-30",
+        "changes": [
+            "Removed the owner DM ! and * broadcast feature",
+        ],
+    },
     {
         "version": "1.16.6",
         "date": "2026-10-30",
@@ -5256,52 +5263,10 @@ async def auth_prefix(ctx: commands.Context, state: str):
     await ctx.reply(f"🔐 Bot responses turned **{state}** for this server.")
 
 
-async def broadcast_owner_message(text: str, ping_everyone: bool = True):
-    """Post text in every server the bot can speak in."""
-    sent = 0
-    failed = 0
-    mention = discord.AllowedMentions(
-        everyone=ping_everyone, users=False, roles=False, replied_user=False
-    )
-    payload = f"@everyone {text}" if ping_everyone else text
-    for guild in bot.guilds:
-        channel = None
-        if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
-            channel = guild.system_channel
-        else:
-            for ch in guild.text_channels:
-                perms = ch.permissions_for(guild.me)
-                if perms.send_messages:
-                    channel = ch
-                    break
-        if channel is None:
-            failed += 1
-            continue
-        try:
-            await channel.send(payload, allowed_mentions=mention)
-            sent += 1
-        except discord.HTTPException:
-            failed += 1
-    return sent, failed
-
-
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot or bot_restarting:
         return
-
-    # Owner DM broadcast
-    if message.guild is None and message.content[:1] in ("!", "*"):
-        if await bot.is_owner(message.author):
-            ping = message.content.startswith("!")
-            text = message.content[1:].strip()
-            if not text:
-                mark = "!" if ping else "*"
-                await message.channel.send(f"❌ Type something after `{mark}`")
-                return
-            sent, failed = await broadcast_owner_message(text, ping_everyone=ping)
-            await message.channel.send(f"✅ Sent to **{sent}** server(s). Failed: **{failed}**.")
-            return
 
     # XP / leveling
     if message.guild is not None:
