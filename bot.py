@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import urllib.request
 import random
@@ -28,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.16.8"
+BOT_VERSION = "1.17.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.17.0",
+        "date": "2026-10-30",
+        "changes": [
+            "Added No Command Mode — talk normally and Xephon runs the matching command",
+        ],
+    },
     {
         "version": "1.16.8",
         "date": "2026-10-30",
@@ -1400,6 +1408,7 @@ COMMAND_HELP = {
     "cds": "Show your cooldowns.\nUsage: `.cds`",
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
+    "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "ptag": "[Admin] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
@@ -1519,6 +1528,7 @@ def build_menu_text():
         "┃ • cds\n"
         "┃ • donate\n"
         "┃ • help\n"
+        "┃ • ncm\n"
         "┃ • ptag\n"
         "┃\n"
         "┃ ── Admin ──\n"
@@ -5229,6 +5239,152 @@ async def send_member_tags(channel, text: str):
     for chunk in chunks:
         await channel.send(chunk, allowed_mentions=allow)
     return len(members)
+
+
+NCM_ALLOWED = {
+    "ping", "8ball", "avatar", "userinfo", "profile", "joke", "translate", "trt",
+    "afk", "bal", "withdraw", "deposit", "cf", "roulette", "fish", "beg", "dig",
+    "loan", "payloan", "daily", "work", "myjob", "jobs", "buypet", "feedpet",
+    "collectpet", "pet", "marry", "marryaccept", "divorce", "partner",
+    "achievements", "sell", "market", "lb", "rank", "ranklb", "mines",
+    "blackjack", "rob", "shop", "buy", "use", "help", "inventory", "slot",
+    "roll", "cds", "donate",
+}
+NCM_CONFIRM = {
+    "donate", "withdraw", "deposit", "buy", "rob", "loan", "payloan", "sell",
+    "use", "cf", "roulette", "mines", "blackjack", "slot", "roll", "marry",
+    "divorce", "buypet", "feedpet",
+}
+ncm_enabled = {}
+ncm_pending = {}
+
+
+def ncm_is_on(user_id: str) -> bool:
+    if user_id in ncm_enabled:
+        return ncm_enabled[user_id]
+    return get_meta(f"ncm:{user_id}") == "on"
+
+
+def set_ncm(user_id: str, enabled: bool):
+    ncm_enabled[user_id] = enabled
+    set_meta(f"ncm:{user_id}", "on" if enabled else "off")
+
+
+def normalize_amount_words(text: str) -> str:
+    import re
+    def repl(match):
+        raw = match.group(1).replace(",", "")
+        word = match.group(2).lower()
+        value = float(raw)
+        mult = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000,
+                "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000,
+                "trillion": 1_000_000_000_000}.get(word, 1)
+        return str(int(value * mult))
+    return re.sub(r"(\d+(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)\b", repl, text, flags=re.I)
+
+
+async def parse_ncm_request(text: str) -> tuple:
+    cleaned = normalize_amount_words(text)
+    if not groq_client:
+        return None, ""
+    allowed = ", ".join(sorted(NCM_ALLOWED))
+    system = (
+        "Convert one Discord sentence into one existing bot command. "
+        "Return only JSON like {\"command\":\"donate\",\"args\":\"7000000 <@123>\"}. "
+        "If it is not a command request, return {\"command\":null}. "
+        f"Allowed commands: {allowed}. "
+        "args is only the arguments, never the command name or a dot. "
+        "Keep Discord mentions exactly as written. "
+        "7 million means 7000000. Do not invent commands."
+    )
+    try:
+        response = await asyncio.to_thread(
+            groq_client.chat.completions.create,
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": cleaned},
+            ],
+            temperature=0,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        data = json.loads(raw)
+        command = data.get("command")
+        args = str(data.get("args") or "").strip()
+        if command not in NCM_ALLOWED:
+            return None, ""
+        return command, args
+    except Exception as e:
+        print(f"NCM parse failed: {e}")
+        return None, ""
+
+
+async def run_ncm_command(message, command: str, args: str):
+    content = f".{command}" + (f" {args}" if args else "")
+    message.content = content
+    # No Command Mode
+    if message.guild is not None and not message.content.startswith(bot.command_prefix):
+        user_id = did(message.author.id)
+        lowered = message.content.strip().lower()
+        if user_id in ncm_pending:
+            pending = ncm_pending.pop(user_id)
+            if lowered in ("yes", "y", "confirm"):
+                await run_ncm_command(message, pending["command"], pending["args"])
+            else:
+                await message.reply("❌ Cancelled.", mention_author=False)
+            return
+        if ncm_is_on(user_id) and message.content.strip() and len(message.content) <= 300:
+            command, args = await parse_ncm_request(message.content)
+            if command:
+                if command in NCM_CONFIRM:
+                    ncm_pending[user_id] = {"command": command, "args": args}
+                    shown = f".{command}" + (f" {args}" if args else "")
+                    await message.reply(
+                        f"Run `{shown}`? Say **yes** to confirm or anything else to cancel.",
+                        mention_author=False,
+                    )
+                else:
+                    await run_ncm_command(message, command, args)
+                return
+
+    await bot.process_commands(message)
+
+
+@bot.tree.command(name="ncm", description="Turn No Command Mode on or off")
+@app_commands.describe(state="on or off")
+@app_commands.choices(state=[
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+])
+async def ncm(interaction: discord.Interaction, state: app_commands.Choice[str]):
+    set_ncm(did(interaction.user.id), state.value == "on")
+    if state.value == "on":
+        await interaction.response.send_message(
+            "🗣️ No Command Mode is **on**. Talk normally, like `donate 7 million to @user`. "
+            "Money commands will ask you to say **yes** first."
+        )
+    else:
+        ncm_pending.pop(did(interaction.user.id), None)
+        await interaction.response.send_message("🔇 No Command Mode is **off**.")
+
+
+@bot.command(name="ncm")
+async def ncm_prefix(ctx: commands.Context, state: str):
+    state = state.lower()
+    if state not in ("on", "off"):
+        await ctx.reply("❌ Use `.ncm on` or `.ncm off`.", mention_author=False)
+        return
+    set_ncm(did(ctx.author.id), state == "on")
+    if state == "on":
+        await ctx.reply(
+            "🗣️ No Command Mode is **on**. Talk normally, like `donate 7 million to @user`. "
+            "Money commands will ask you to say **yes** first.",
+            mention_author=False,
+        )
+    else:
+        ncm_pending.pop(did(ctx.author.id), None)
+        await ctx.reply("🔇 No Command Mode is **off**.", mention_author=False)
 
 
 @bot.tree.command(name="ptag", description="Delete your message, then mention every member")
