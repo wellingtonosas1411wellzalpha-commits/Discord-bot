@@ -3,11 +3,7 @@
 <h1 align="center"><b>🤖 XEPHON CORE</b></h1>
 
 <p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=Xephongpt+%7C+fast+%7C+cool;developed+by+Kira" />
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/developed%20by-Kira%20%F0%9F%A7%91%E2%80%8D%F0%9F%92%BB-FFD700?style=for-the-badge" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=⚡+Advanced+Discord+Economy+Bot;🧠+XephonGPT+%7C+Fast+%7C+Secure;🔥+Developed+By+kira" />
 </p>
 
 <p align="center">
@@ -18,7 +14,7 @@
   <img src="https://komarev.com/ghpvc/?username=wellingtonosas1411wellzalpha-commits&label=Visitors&color=00E5FF&style=for-the-badge" />
   <img src="https://img.shields.io/github/stars/wellingtonosas1411wellzalpha-commits/Discord-bot?style=for-the-badge&color=FFD700" />
   <img src="https://img.shields.io/github/forks/wellingtonosas1411wellzalpha-commits/Discord-bot?style=for-the-badge&color=7C4DFF" />
-  <img src="https://img.shields.io/badge/Version-v1.19.0-00E5FF?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Version-v1.15.6-00E5FF?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
 </p>
 
@@ -103,7 +99,7 @@ Prefix is `.`
 | Gambling | `.cf` `.roll` `.roulette` `.mines` `.blackjack` `.slot` |
 | Social | `.marry` `.marryaccept` `.divorce` `.partner` `.achievements` `.afk` |
 | Admin | `.give` `.take` `.setlevelrole` `.levelroles` `.syncroles` |
-| Owner | `.auth` `.storage` `.restart` `.stats` `.activity` `.clearcache` `.reset` `.ptag` |
+| Owner | `.auth` `.storage` `.restart` `.stats` `.activity` `.clearcache` `.recharge` `.reset` |
 
 ---
 
@@ -135,7 +131,7 @@ RENDER_DEPLOY_HOOK=your_render_deploy_hook
 
 ### ▶️ 4. Start the Engine
 ```bash
-python bot.py
+python start.py
 ```
 
 🎉 **Xephon is online.**
@@ -149,7 +145,7 @@ Xephon is built to stay up.
 * 💻 **VPS** — Ubuntu or Debian
 * 🐘 **Any Python host with PostgreSQL**
 
-On Render, start command is `python bot.py`.
+On Render, start command is `python start.py`.
 
 ---
 
