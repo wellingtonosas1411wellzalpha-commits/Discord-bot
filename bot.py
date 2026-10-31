@@ -29,10 +29,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.17.1"
+BOT_VERSION = "1.18.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.0",
+        "date": "2026-10-31",
+        "changes": [
+            ".ptag is now owner-only",
+            "Removed .recharge",
+            "Added .test on/off for VIP and tester roles",
+        ],
+    },
     {
         "version": "1.17.1",
         "date": "2026-10-30",
@@ -1427,7 +1436,7 @@ COMMAND_HELP = {
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
-    "ptag": "[Admin] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
+    "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
     "myjob": "See your current job and salary.\nUsage: `.myjob`",
@@ -1451,7 +1460,7 @@ COMMAND_HELP = {
     "take": "[Admin] Strip a role from a user directly.\nUsage: `.take @user @role`",
     "setlevelrole": "[Admin] Set a role reward for reaching a level.\nUsage: `.setlevelrole <level> @role`",
     "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
-    "recharge": "[Owner] Add 50,000,000 coins to your wallet. 3 uses per day.\nUsage: `.recharge`",
+    "test": "[VIP/tester] Turn test money on or off.\nUsage: `.test on` / `.test off`",
     "reset": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
     "restart": "[Owner] Deploy the latest commit and restart Xephon.\nUsage: `.restart`",
 }
@@ -1562,7 +1571,7 @@ def build_menu_text():
         "┃ • stats\n"
         "┃ • activity\n"
         "┃ • clearcache\n"
-        "┃ • recharge\n"
+        "┃ • test\n"
         "┃ • reset\n"
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
@@ -2495,7 +2504,13 @@ def build_cooldowns_text(user_id: int):
 
 
 
+def test_mode_on(user_id) -> bool:
+    return get_meta(f"test_mode:{user_id}") == "on"
+
+
 def do_donate(sender_id: int, receiver_id: int, amount_str: str):
+    if test_mode_on(sender_id):
+        return "❌ Test money cannot be donated."
     if sender_id == receiver_id:
         return None, "❌ You can't donate to yourself."
 
@@ -4416,18 +4431,120 @@ def do_reset(user_id):
     )
 
 
-@bot.tree.command(name="recharge", description="[Owner only] Add 50,000,000 coins to your wallet (3/day)")
-async def recharge(interaction: discord.Interaction):
-    if not await interaction.client.is_owner(interaction.user):
-        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+TEST_WALLET = 999_999_999_999_999
+
+
+def has_tester_role(member) -> bool:
+    if not isinstance(member, discord.Member):
+        return False
+    names = {role.name.lower() for role in member.roles}
+    return "vip" in names or "tester" in names
+
+
+def snapshot_test_state(user_id):
+    bal = get_balance(user_id)
+    conn, cur = get_db()
+    cur.execute("SELECT item_key, quantity FROM global_inventory WHERE user_id = %s", (user_id,))
+    global_items = cur.fetchall()
+    cur.execute("SELECT item_id, quantity FROM inventory WHERE user_id = %s", (user_id,))
+    custom_items = cur.fetchall()
+    cur.execute("SELECT pet_key, level, xp FROM pets WHERE user_id = %s", (user_id,))
+    pets = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    effects = get_user_effects(user_id)
+    return {
+        "wallet": bal["wallet"],
+        "bank": bal["bank"],
+        "global_items": [[k, q] for k, q in global_items],
+        "custom_items": [[i, q] for i, q in custom_items],
+        "pets": [[k, lvl, xp] for k, lvl, xp in pets],
+        "lucky_stacks": effects["lucky_stacks"],
+        "cd_boost_until": effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None,
+    }
+
+
+def restore_test_state(user_id, snap):
+    update_balance(user_id, wallet=snap["wallet"], bank=snap["bank"])
+    conn, cur = get_db()
+    cur.execute("DELETE FROM global_inventory WHERE user_id = %s", (user_id,))
+    for key, qty in snap.get("global_items", []):
+        cur.execute(
+            "INSERT INTO global_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s)",
+            (user_id, key, qty),
+        )
+    cur.execute("DELETE FROM inventory WHERE user_id = %s", (user_id,))
+    for item_id, qty in snap.get("custom_items", []):
+        cur.execute(
+            "INSERT INTO inventory (user_id, item_id, quantity) VALUES (%s, %s, %s)",
+            (user_id, item_id, qty),
+        )
+    cur.execute("DELETE FROM pets WHERE user_id = %s", (user_id,))
+    for pet_key, level, xp in snap.get("pets", []):
+        cur.execute(
+            "INSERT INTO pets (user_id, pet_key, level, xp) VALUES (%s, %s, %s, %s)",
+            (user_id, pet_key, level, xp),
+        )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    until = snap.get("cd_boost_until")
+    set_user_effects(
+        user_id,
+        lucky_stacks=snap.get("lucky_stacks", 0),
+        cd_boost_until=until,
+    )
+
+
+def do_test(user_id, turn_on: bool):
+    if turn_on:
+        if test_mode_on(user_id):
+            return "⚠️ Test mode is already **on**."
+        snap = snapshot_test_state(user_id)
+        set_meta(f"test_snapshot:{user_id}", json.dumps(snap))
+        set_meta(f"test_mode:{user_id}", "on")
+        update_balance(user_id, wallet=TEST_WALLET)
+        return (
+            "🧪 Test mode is **on**.\n"
+            "You now have infinite test money.\n"
+            "It cannot be donated. When you turn it off, extra money, bet winnings, "
+            "and items bought with test money disappear."
+        )
+    if not test_mode_on(user_id):
+        return "❌ Test mode is already **off**."
+    raw = get_meta(f"test_snapshot:{user_id}")
+    if not raw:
+        set_meta(f"test_mode:{user_id}", "off")
+        return "❌ Test snapshot was missing. Test mode is now off."
+    restore_test_state(user_id, json.loads(raw))
+    set_meta(f"test_mode:{user_id}", "off")
+    set_meta(f"test_snapshot:{user_id}", "")
+    return "🧪 Test mode is **off**. Extra money and items bought with test money were removed."
+
+
+@bot.tree.command(name="test", description="[VIP/tester] Turn infinite test money on or off")
+@app_commands.describe(state="on or off")
+@app_commands.choices(state=[
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+])
+async def test_cmd(interaction: discord.Interaction, state: app_commands.Choice[str]):
+    if not has_tester_role(interaction.user):
+        await interaction.response.send_message("❌ You need the **vip** or **tester** role.", ephemeral=True)
         return
-    await interaction.response.send_message(do_recharge(did(interaction.user.id)))
+    await interaction.response.send_message(do_test(did(interaction.user.id), state.value == "on"))
 
 
-@bot.command(name="recharge")
-@commands.is_owner()
-async def recharge_prefix(ctx: commands.Context):
-    await ctx.reply(do_recharge(did(ctx.author.id)))
+@bot.command(name="test")
+async def test_prefix(ctx: commands.Context, state: str):
+    if not has_tester_role(ctx.author):
+        await ctx.reply("❌ You need the **vip** or **tester** role.", mention_author=False)
+        return
+    state = state.lower()
+    if state not in ("on", "off"):
+        await ctx.reply("❌ Use `.test on` or `.test off`.", mention_author=False)
+        return
+    await ctx.reply(do_test(did(ctx.author.id), state == "on"), mention_author=False)
 
 
 @bot.tree.command(name="reset", description="[Owner only] Reset a player's money and lucky stacks")
@@ -5380,18 +5497,14 @@ async def ncm_prefix(ctx: commands.Context, state: str):
         await ctx.reply("🔇 No Command Mode is **off**.", mention_author=False)
 
 
-@bot.tree.command(name="ptag", description="Delete your message, then mention every member")
+@bot.tree.command(name="ptag", description="[Owner only] Mention every member")
 @app_commands.describe(message="Message to send with the tags")
 async def ptag(interaction: discord.Interaction, message: str):
     if interaction.guild is None:
         await interaction.response.send_message("❌ Use this in a server.", ephemeral=True)
         return
-    member = interaction.user
-    allowed = await interaction.client.is_owner(member) or getattr(member, "guild_permissions", None) and (
-        member.guild_permissions.administrator or member.guild_permissions.mention_everyone
-    )
-    if not allowed:
-        await interaction.response.send_message("❌ You need Administrator to use this.", ephemeral=True)
+    if not await interaction.client.is_owner(interaction.user):
+        await interaction.response.send_message("❌ Only the bot owner can use this.", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
     count = await send_member_tags(interaction.channel, message)
@@ -5401,9 +5514,8 @@ async def ptag(interaction: discord.Interaction, message: str):
 @bot.command(name="ptag")
 @commands.guild_only()
 async def ptag_prefix(ctx: commands.Context, *, message: str):
-    allowed = await bot.is_owner(ctx.author) or ctx.author.guild_permissions.administrator or ctx.author.guild_permissions.mention_everyone
-    if not allowed:
-        await ctx.reply("❌ You need Administrator to use this.", mention_author=False)
+    if not await bot.is_owner(ctx.author):
+        await ctx.reply("❌ Only the bot owner can use this.", mention_author=False)
         return
     try:
         await ctx.message.delete()
