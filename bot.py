@@ -24,16 +24,22 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-
 def did(discord_id) -> str:
     """Namespaced key for a Discord user's balance."""
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.8"
+BOT_VERSION = "1.18.9"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.9",
+        "date": "2026-10-31",
+        "changes": [
+            "Removed leftover recharge code and extra blank lines",
+        ],
+    },
     {
         "version": "1.18.8",
         "date": "2026-10-31",
@@ -438,7 +444,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-
 class AuthCheckedTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if bot_restarting:
@@ -464,7 +469,6 @@ class AuthCheckedTree(app_commands.CommandTree):
             return False
         return True
 
-
 bot_restarting = False
 
 bot = commands.Bot(
@@ -474,7 +478,6 @@ bot = commands.Bot(
     allowed_mentions=discord.AllowedMentions(replied_user=False),
     help_command=None,
 )
-
 
 @bot.check
 async def global_auth_check(ctx: commands.Context) -> bool:
@@ -492,7 +495,6 @@ async def global_auth_check(ctx: commands.Context) -> bool:
     if await bot.is_owner(ctx.author):
         return True
     return auth_enabled.get(ctx.guild.id, True)
-
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
@@ -533,7 +535,6 @@ dig_cooldowns = {}
 slot_cooldowns = {}
 dice_cooldowns = {}
 
-
 CF_COOLDOWN_SECONDS = 60
 ROULETTE_COOLDOWN_SECONDS = 180
 FISH_COOLDOWN_SECONDS = 60
@@ -544,14 +545,12 @@ DICE_COOLDOWN_SECONDS = 60
 DAILY_COOLDOWN_SECONDS = 86400
 WORK_COOLDOWN_SECONDS = 3600
 
-
 def apply_cd_boost(user_id, seconds: int) -> int:
     """Halve cooldown if Vx / V9 boost is active."""
     until = get_cd_boost_until(user_id)
     if until and time.time() < until:
         return max(1, seconds // 2)
     return seconds
-
 
 def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
     seconds = apply_cd_boost(user_id, seconds)
@@ -562,7 +561,6 @@ def check_cooldown(cooldowns: dict, user_id: int, seconds: int):
     cooldowns[user_id] = now
     return None
 
-
 def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
     """Read-only check, does not start/reset the cooldown."""
     last = cooldowns.get(user_id)
@@ -572,7 +570,6 @@ def get_remaining_cooldown(cooldowns: dict, user_id: int, seconds: int):
     if elapsed < seconds:
         return seconds - elapsed
     return None
-
 
 def check_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     """Database-backed cooldown check that survives bot restarts. Use for
@@ -607,7 +604,6 @@ def check_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     cur.close()
     release_db(conn)
     return None
-
 
 auth_enabled = {}  # guild_id -> bool (default True = enabled)
 
@@ -658,13 +654,11 @@ RENDER_DEPLOY_HOOK = os.getenv("RENDER_DEPLOY_HOOK", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-
 try:
     db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL) if DATABASE_URL else None
 except Exception as e:
     print(f"Database connection failed: {e}")
     db_pool = None
-
 
 def get_db():
     """Grab a connection from the pool instead of opening a new one every call."""
@@ -672,11 +666,9 @@ def get_db():
     cur = conn.cursor()
     return conn, cur
 
-
 def release_db(conn):
     """Return a connection to the pool. Always call this instead of conn.close()."""
     db_pool.putconn(conn)
-
 
 def init_db():
     """One-time table creation at startup, so hot-path functions don't re-run
@@ -835,7 +827,6 @@ def init_db():
     cur.close()
     db_pool.putconn(conn)
 
-
 def get_balance(user_id: int):
     conn, cur = get_db()
     cur.execute("SELECT wallet, bank FROM balances WHERE user_id = %s", (user_id,))
@@ -852,7 +843,6 @@ def get_balance(user_id: int):
     cur.close()
     release_db(conn)
     return {"wallet": wallet, "bank": bank}
-
 
 def update_balance(user_id: int, wallet=None, bank=None):
     """Set absolute wallet/bank under a row lock. Prefer adjust_balance for transfers."""
@@ -877,7 +867,6 @@ def update_balance(user_id: int, wallet=None, bank=None):
     release_db(conn)
     return True
 
-
 def adjust_balance(user_id, wallet_delta: int = 0, bank_delta: int = 0):
     """Atomically add deltas. Returns new balances, or None if it would go negative."""
     get_balance(user_id)
@@ -895,7 +884,6 @@ def adjust_balance(user_id, wallet_delta: int = 0, bank_delta: int = 0):
     if row is None:
         return None
     return {"wallet": row[0], "bank": row[1]}
-
 
 def load_persistent_state(cur):
     cur.execute("SELECT key, value FROM bot_meta WHERE key LIKE 'auth:%'")
@@ -916,11 +904,9 @@ def load_persistent_state(cur):
             "revealed": set(int(x) for x in revealed_raw.split(",") if x),
         }
 
-
 def set_auth_state(guild_id: int, enabled: bool):
     auth_enabled[guild_id] = enabled
     set_meta(f"auth:{guild_id}", "on" if enabled else "off")
-
 
 def set_afk(user_id, reason: str):
     afk_users[user_id] = reason
@@ -934,7 +920,6 @@ def set_afk(user_id, reason: str):
     cur.close()
     release_db(conn)
 
-
 def clear_afk(user_id):
     afk_users.pop(user_id, None)
     conn, cur = get_db()
@@ -942,7 +927,6 @@ def clear_afk(user_id):
     conn.commit()
     cur.close()
     release_db(conn)
-
 
 def save_mines_game(user_id):
     game = active_mines_games.get(user_id)
@@ -963,16 +947,13 @@ def save_mines_game(user_id):
     cur.close()
     release_db(conn)
 
-
 def delete_mines_game(user_id):
     active_mines_games.pop(user_id, None)
     save_mines_game(user_id)
 
-
 def xp_for_level(level: int) -> int:
     """Total XP required to reach the given level. Simple increasing curve."""
     return 5 * (level ** 2) + 50 * level + 100
-
 
 def get_level_data(user_id: int):
     conn, cur = get_db()
@@ -991,7 +972,6 @@ def get_level_data(user_id: int):
     release_db(conn)
     return {"xp": xp, "level": level, "last_xp_gain": last_xp_gain}
 
-
 def get_level_role(guild_id: int, level: int):
     """Returns the role_id configured for this level in this guild, or None."""
     conn, cur = get_db()
@@ -1004,7 +984,6 @@ def get_level_role(guild_id: int, level: int):
     release_db(conn)
     return int(row[0]) if row else None
 
-
 def set_level_role(guild_id: int, level: int, role_id: int):
     conn, cur = get_db()
     cur.execute(
@@ -1016,7 +995,6 @@ def set_level_role(guild_id: int, level: int, role_id: int):
     cur.close()
     release_db(conn)
 
-
 def list_level_roles(guild_id: int):
     conn, cur = get_db()
     cur.execute(
@@ -1027,7 +1005,6 @@ def list_level_roles(guild_id: int):
     cur.close()
     release_db(conn)
     return rows
-
 
 def add_message_xp(user_id: int):
     """Award XP for a message, respecting a per-user cooldown. Returns the new
@@ -1063,7 +1040,6 @@ def add_message_xp(user_id: int):
         return new_level
     return None
 
-
 def get_xp_leaderboard(limit: int = 10):
     """Returns a list of (user_id, level, xp) tuples, highest level first."""
     conn, cur = get_db()
@@ -1076,7 +1052,6 @@ def get_xp_leaderboard(limit: int = 10):
     release_db(conn)
     return rows
 
-
 def get_user_count():
     conn, cur = get_db()
     cur.execute("SELECT COUNT(DISTINCT user_id) FROM command_log WHERE platform = 'discord'")
@@ -1084,7 +1059,6 @@ def get_user_count():
     cur.close()
     release_db(conn)
     return discord_count
-
 
 def log_command_usage(user_id: str, command: str, platform: str):
     """Records which command was used and by whom — never the message's
@@ -1098,7 +1072,6 @@ def log_command_usage(user_id: str, command: str, platform: str):
     cur.close()
     release_db(conn)
 
-
 def get_recent_activity(limit: int = 20):
     conn, cur = get_db()
     cur.execute(
@@ -1110,7 +1083,6 @@ def get_recent_activity(limit: int = 20):
     cur.close()
     release_db(conn)
     return rows
-
 
 def build_activity_text():
     rows = get_recent_activity()
@@ -1127,7 +1099,6 @@ def build_activity_text():
         + "\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def build_stats_text():
     discord_count = get_user_count()
     return (
@@ -1136,7 +1107,6 @@ def build_stats_text():
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def get_meta(key: str):
     conn, cur = get_db()
     cur.execute("SELECT value FROM bot_meta WHERE key = %s", (key,))
@@ -1144,7 +1114,6 @@ def get_meta(key: str):
     cur.close()
     release_db(conn)
     return row[0] if row else None
-
 
 def set_meta(key: str, value: str):
     conn, cur = get_db()
@@ -1156,7 +1125,6 @@ def set_meta(key: str, value: str):
     conn.commit()
     cur.close()
     release_db(conn)
-
 
 def _adjust_meta_int(key: str, delta: int) -> int:
     """Atomically adds delta to a numeric bot_meta value in a single SQL
@@ -1178,28 +1146,23 @@ def _adjust_meta_int(key: str, delta: int) -> int:
     release_db(conn)
     return new_value
 
-
 def get_treasury() -> int:
     value = get_meta(TREASURY_META_KEY)
     return int(value) if value else 0
-
 
 def add_to_treasury(amount: int):
     if amount <= 0:
         return
     _adjust_meta_int(TREASURY_META_KEY, amount)
 
-
 def get_bot_bank() -> int:
     value = get_meta(BOT_BANK_KEY)
     return int(value) if value else 0
-
 
 def add_to_bot_bank(amount: int):
     if amount <= 0:
         return
     _adjust_meta_int(BOT_BANK_KEY, amount)
-
 
 def take_from_bot_bank(amount: int) -> bool:
     """Atomically checks-and-subtracts in one statement so two people
@@ -1220,11 +1183,9 @@ def take_from_bot_bank(amount: int) -> bool:
     release_db(conn)
     return row is not None
 
-
 def house_take(amount: int):
     """Send lost coins to the bot's lending bank."""
     add_to_bot_bank(amount)
-
 
 def loan_terms(amount: int):
     """Return (hours, repay_amount) based on how big the loan is."""
@@ -1239,7 +1200,6 @@ def loan_terms(amount: int):
     else:
         hours, rate = 48, 1.40
     return hours, int(amount * rate)
-
 
 def get_loan(user_id):
     conn, cur = get_db()
@@ -1258,7 +1218,6 @@ def get_loan(user_id):
         "remaining": row[2],
         "due_at": row[3],
     }
-
 
 def format_loan_status(user_id) -> str:
     loan = get_loan(user_id)
@@ -1283,7 +1242,6 @@ def format_loan_status(user_id) -> str:
         "┃ Pay with `.payloan <amount|all>`\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
-
 
 def take_loan(user_id, amount_str: str) -> str:
     if not amount_str:
@@ -1325,7 +1283,6 @@ def take_loan(user_id, amount_str: str) -> str:
         f"Use `.payloan <amount|all>`"
     )
 
-
 def pay_loan(user_id, amount_str: str) -> str:
     loan = get_loan(user_id)
     if not loan:
@@ -1356,7 +1313,6 @@ def pay_loan(user_id, amount_str: str) -> str:
     release_db(conn)
     return f"✅ Paid **${pay:,}**. Still owed: **${leftover:,}**."
 
-
 def collect_overdue_loans():
     conn, cur = get_db()
     cur.execute("SELECT user_id, remaining FROM loans WHERE due_at <= %s", (time.time(),))
@@ -1380,7 +1336,6 @@ def collect_overdue_loans():
         cur.close()
         release_db(conn)
 
-
 def apply_tax(amount: int, rate: float = TAX_RATE):
     """Splits an amount into (net, tax). The tax portion is added to the
     server treasury. Use this on salary (rob is untaxed as of 1.11.5)."""
@@ -1390,8 +1345,6 @@ def apply_tax(amount: int, rate: float = TAX_RATE):
     net = amount - tax
     add_to_treasury(tax)
     return net, tax
-
-
 
 def build_balance_text(user_id: int):
     if test_mode_on(user_id):
@@ -1417,7 +1370,6 @@ def build_balance_text(user_id: int):
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def do_withdraw(user_id: int, amount_str: str):
     bal = get_balance(user_id)
     try:
@@ -1442,7 +1394,6 @@ def do_withdraw(user_id: int, amount_str: str):
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def do_deposit(user_id: int, amount_str: str):
     bal = get_balance(user_id)
     try:
@@ -1464,7 +1415,6 @@ def do_deposit(user_id: int, amount_str: str):
         f"┃ 🏦 ʙᴀɴᴋ   : [ ${new_bal['bank']:,} ]\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
-
 
 COMMAND_HELP = {
     "ping": "Check the bot's latency.\nUsage: `.ping`",
@@ -1537,7 +1487,6 @@ COMMAND_HELP = {
     "restart": "[Owner] Deploy the latest commit and restart Xephon.\nUsage: `.restart`",
 }
 
-
 def build_menu_text():
     return (
         '✦  ━━━━━   X E P H O N   ━━━━━  ✦\n'
@@ -1595,7 +1544,6 @@ def build_menu_text():
         '✦  Developed by Kira  ✦\n'
     )
 
-
 def build_help_text(name: str) -> str:
     key = name.strip().lower().lstrip("./")
     aliases = {
@@ -1609,14 +1557,12 @@ def build_help_text(name: str) -> str:
         return f"❌ No help found for `{name}`.\nUse `.menu` to see command names."
     return f"╭━━━〔 ❓ {key} 〕━━━⬣\n┃ {info.replace(chr(10), chr(10) + '┃ ')}\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
 
-
 def format_uptime(seconds: float):
     seconds = int(seconds)
     h = seconds // 3600
     m = (seconds % 3600) // 60
     s = seconds % 60
     return f"{h}h {m}m {s}s"
-
 
 def build_storage_text():
     uptime = time.time() - BOT_START_TIME
@@ -1674,7 +1620,6 @@ def build_storage_text():
         "━━━━━━━━━━━━━━━━━━━"
     )
 
-
 def do_clearcache():
     process = psutil.Process()
     before_mb = process.memory_info().rss / (1024 * 1024)
@@ -1713,7 +1658,6 @@ def do_clearcache():
         "✅ Bot cache was actually cleared."
     )
 
-
 FISH_CATCHES = [
     ("Blue Fish", 300, 1500),
     ("Old Boot", 50, 200),
@@ -1738,7 +1682,6 @@ DIG_OUTCOMES = [
     ("Just dirt. Nothing here.", 0, 0, False),
 ]
 
-
 def do_fish(user_id: int):
     if not has_global_item(user_id, "fishing_rod"):
         return "❌ You need a **Fishing Rod** first. Buy one with `.buy fishing rod` (1,000 coins)."
@@ -1761,7 +1704,6 @@ def do_fish(user_id: int):
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def do_beg(user_id: int):
     remaining = check_cooldown(beg_cooldowns, user_id, BEG_COOLDOWN_SECONDS)
     if remaining is not None:
@@ -1773,7 +1715,6 @@ def do_beg(user_id: int):
     adjust_balance(user_id, wallet_delta=amount)
 
     return f"🙏 {line}\n💰 +${amount:,} coins"
-
 
 def do_dig(user_id: int):
     if not has_global_item(user_id, "shovel"):
@@ -1798,7 +1739,6 @@ def do_dig(user_id: int):
     body += "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     return body
 
-
 def do_daily(user_id: int):
     remaining = check_persistent_cooldown("daily", user_id, DAILY_COOLDOWN_SECONDS)
     if remaining is not None:
@@ -1817,7 +1757,6 @@ def do_daily(user_id: int):
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 WORK_JOBS = [
     ("Software Developer", 3000, 8000),
     ("Discord Moderator", 1500, 4000),
@@ -1826,7 +1765,6 @@ WORK_JOBS = [
     ("Streamer", 2500, 7000),
     ("Delivery Rider", 1200, 3000),
 ]
-
 
 def do_work(user_id: int):
     remaining = check_persistent_cooldown("work", user_id, WORK_COOLDOWN_SECONDS)
@@ -1846,7 +1784,6 @@ def do_work(user_id: int):
         "┃\n"
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
-
 
 # ---------- Jobs & Salary ----------
 # A persistent job (separate from the one-off flavor text in .work) that
@@ -1870,7 +1807,6 @@ def set_job(user_id, job_key: str):
     release_db(conn)
     return f"🎲 You've been assigned a job: **{JOBS[job_key]['label']}**! Salary: **${JOBS[job_key]['pay']:,}** every {SALARY_INTERVAL_HOURS // 24} days."
 
-
 def get_job(user_id):
     conn, cur = get_db()
     cur.execute("SELECT job FROM jobs WHERE user_id = %s", (user_id,))
@@ -1878,7 +1814,6 @@ def get_job(user_id):
     cur.close()
     release_db(conn)
     return row[0] if row else None
-
 
 def get_all_jobholders():
     """Returns a list of (user_id, job) for everyone with a job set."""
@@ -1888,7 +1823,6 @@ def get_all_jobholders():
     cur.close()
     release_db(conn)
     return rows
-
 
 def build_myjob_text(user_id) -> str:
     job_key = get_job(user_id)
@@ -1901,7 +1835,6 @@ def build_myjob_text(user_id) -> str:
         f"🔁 You can reroll once every 2 weeks (`.setjob`)"
     )
 
-
 def build_jobs_list_text() -> str:
     lines = ["╭━━━〔 💼 ᴀᴠᴀɪʟᴀʙʟᴇ ᴊᴏʙs 〕━━━⬣", "┃"]
     for key, info in JOBS.items():
@@ -1910,7 +1843,6 @@ def build_jobs_list_text() -> str:
     lines.append("┃ Get randomly assigned one with `.setjob` (once every 2 weeks)")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
-
 
 def get_leaderboard(limit: int = 10):
     conn, cur = get_db()
@@ -1922,7 +1854,6 @@ def get_leaderboard(limit: int = 10):
     cur.close()
     release_db(conn)
     return rows
-
 
 def build_leaderboard_text():
     rows = get_leaderboard(10)
@@ -1941,7 +1872,6 @@ def build_leaderboard_text():
         + "\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 def parse_amount(amount_str: str, all_value: int = None):
     cleaned = amount_str.replace(",", "").replace("$", "").strip().lower()
     if cleaned == "all":
@@ -1949,7 +1879,6 @@ def parse_amount(amount_str: str, all_value: int = None):
             raise ValueError
         return all_value
     return int(cleaned)
-
 
 def do_roulette_spin():
     number = random.randint(0, 36)
@@ -1966,7 +1895,6 @@ def do_roulette_spin():
             color_display = "⚫ BLACK"
     return number, color, color_display
 
-
 MINES_HELP_TEXT = (
     "💣 *MINES CASINO* 💣\n"
     "──────────────────\n"
@@ -1975,7 +1903,6 @@ MINES_HELP_TEXT = (
     "Example: `.mines 5000 3`\n\n"
     "You can choose between 1 to 24 mines."
 )
-
 
 def build_mines_grid(game, exploded=False, hit_position=None):
     lines = []
@@ -1997,13 +1924,11 @@ def build_mines_grid(game, exploded=False, hit_position=None):
         lines.append(" ".join(cells))
     return "\n".join(lines)
 
-
 def mines_multiplier(mines_count: int, revealed_count: int):
     safe_total = 25 - mines_count
     if revealed_count == 0:
         return 1.0
     return math.comb(25, revealed_count) / math.comb(safe_total, revealed_count)
-
 
 def build_mines_started_text(game):
     grid = build_mines_grid(game)
@@ -2016,7 +1941,6 @@ def build_mines_started_text(game):
         f"Mines: {game['mines_count']}\n\n"
         "👉 Type `.mines <1-25>` to start digging!"
     )
-
 
 def build_mines_progress_text(game):
     grid = build_mines_grid(game)
@@ -2036,7 +1960,6 @@ def build_mines_progress_text(game):
         "👉 Type `.mines cashout` to win!"
     )
 
-
 def build_mines_exploded_text(game, hit_position):
     grid = build_mines_grid(game, exploded=True, hit_position=hit_position)
     return (
@@ -2047,7 +1970,6 @@ def build_mines_exploded_text(game, hit_position):
         f"💥 BOOM! You hit a mine at square {hit_position}.\n"
         f"Loss: ${game['bet']:,}"
     )
-
 
 def start_mines(user_id: int, bet_str: str, mines_str: str = None):
     if user_id in active_mines_games:
@@ -2083,7 +2005,6 @@ def start_mines(user_id: int, bet_str: str, mines_str: str = None):
     }
     save_mines_game(user_id)
     return build_mines_started_text(active_mines_games[user_id])
-
 
 def dig_mines(user_id: int, position_str: str):
     game = active_mines_games.get(user_id)
@@ -2142,7 +2063,6 @@ def dig_mines(user_id: int, position_str: str):
         text = "🍀 Lucky Potion saved you from a mine!\n" + text
     return text
 
-
 def cashout_mines(user_id: int):
     game = active_mines_games.get(user_id)
     if not game:
@@ -2164,18 +2084,15 @@ def cashout_mines(user_id: int):
         f"🎉 CASHED OUT! Payout: ${payout:,}"
     )
 
-
 # ---------- Blackjack ----------
 
 BLACKJACK_RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
 BLACKJACK_SUITS = ["♠", "♥", "♦", "♣"]
 
-
 def new_blackjack_deck():
     deck = [(rank, suit) for rank in BLACKJACK_RANKS for suit in BLACKJACK_SUITS]
     random.shuffle(deck)
     return deck
-
 
 def card_value(rank: str) -> int:
     if rank in ("J", "Q", "K"):
@@ -2183,7 +2100,6 @@ def card_value(rank: str) -> int:
     if rank == "A":
         return 11
     return int(rank)
-
 
 def hand_total(hand):
     total = sum(card_value(rank) for rank, _ in hand)
@@ -2193,10 +2109,8 @@ def hand_total(hand):
         aces -= 1
     return total
 
-
 def format_hand(hand):
     return " ".join(f"{rank}{suit}" for rank, suit in hand)
-
 
 def build_blackjack_text(game, reveal_dealer=False, result_line=None):
     player_total = hand_total(game["player"])
@@ -2216,7 +2130,6 @@ def build_blackjack_text(game, reveal_dealer=False, result_line=None):
         lines.append("")
         lines.append("👉 `.blackjack hit` to draw, `.blackjack stand` to hold.")
     return "\n".join(lines)
-
 
 def start_blackjack(user_id: int, bet_str: str):
     if user_id in active_blackjack_games:
@@ -2244,7 +2157,6 @@ def start_blackjack(user_id: int, bet_str: str):
 
     active_blackjack_games[user_id] = game
     return build_blackjack_text(game)
-
 
 def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
     bet = game["bet"]
@@ -2298,7 +2210,6 @@ def resolve_blackjack(user_id: int, game, natural=False, player_bust=False):
 
     return build_blackjack_text(game, reveal_dealer=True, result_line=result_line)
 
-
 def hit_blackjack(user_id: int):
     game = active_blackjack_games.get(user_id)
     if not game:
@@ -2309,18 +2220,15 @@ def hit_blackjack(user_id: int):
         return resolve_blackjack(user_id, game, player_bust=True)
     return build_blackjack_text(game)
 
-
 def stand_blackjack(user_id: int):
     game = active_blackjack_games.get(user_id)
     if not game:
         return "❌ No active blackjack game. Start one with `.blackjack <bet>`."
     return resolve_blackjack(user_id, game)
 
-
 SLOT_SYMBOLS = ["🍒", "🍋", "💎", "🔔", "7️⃣"]
 SLOT_JACKPOT_MULTIPLIER = 10
 SLOT_WIN_MULTIPLIER = 2
-
 
 def build_slot_spin_text(spin_display: str, footer: str = "🔄 Spinning..."):
     return (
@@ -2331,10 +2239,8 @@ def build_slot_spin_text(spin_display: str, footer: str = "🔄 Spinning..."):
         f"{footer}"
     )
 
-
 def random_spin_display():
     return " | ".join(random.choice(SLOT_SYMBOLS) for _ in range(3))
-
 
 async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
     bal = get_balance(user_id)
@@ -2401,9 +2307,7 @@ async def run_slot(user_id: int, amount_str: str, send_func, edit_func):
 
     await edit_func(sent, build_slot_spin_text(spin_display, footer))
 
-
 DICE_WIN_MULTIPLIER = 2
-
 
 def do_dice(user_id: int, amount_str: str):
     bal = get_balance(user_id)
@@ -2426,7 +2330,6 @@ def do_dice(user_id: int, amount_str: str):
     if not won and random.random() < max(0.0, luck_chance(0.5, user_id) - 0.5):
         won = True
         roll = random.randint(4, 6)
-
 
     header = (
         "🎲 *DICE ROLL* 🎲\n"
@@ -2454,7 +2357,6 @@ def do_dice(user_id: int, amount_str: str):
             f"💵 Wallet: ${final_bal['wallet']:,}"
         )
 
-
 def get_remaining_persistent_cooldown(command_name: str, user_id: int, seconds: int):
     """Read-only check for a persistent cooldown, does not start/reset it."""
     uid = user_id
@@ -2473,7 +2375,6 @@ def get_remaining_persistent_cooldown(command_name: str, user_id: int, seconds: 
         return seconds - elapsed
     return None
 
-
 COOLDOWN_REGISTRY = [
     ("Coinflip (.cf)", cf_cooldowns, CF_COOLDOWN_SECONDS),
     ("Roulette (.roulette)", roulette_cooldowns, ROULETTE_COOLDOWN_SECONDS),
@@ -2491,7 +2392,6 @@ PERSISTENT_COOLDOWN_REGISTRY = [
     ("Work (.work)", "work", WORK_COOLDOWN_SECONDS),
     ("Rob (.rob)", "rob", ROB_COOLDOWN_SECONDS),
 ]
-
 
 def build_cooldowns_text(user_id: int):
     lines = []
@@ -2520,11 +2420,8 @@ def build_cooldowns_text(user_id: int):
         + "\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
-
 def test_mode_on(user_id) -> bool:
     return get_meta(f"test_mode:{user_id}") == "on"
-
 
 def do_donate(sender_id: int, receiver_id: int, amount_str: str):
     if test_mode_on(sender_id):
@@ -2547,7 +2444,6 @@ def do_donate(sender_id: int, receiver_id: int, amount_str: str):
     adjust_balance(receiver_id, wallet_delta=amount)
     return amount, None
 
-
 # ---------- Shop / Inventory ----------
 
 def get_shop_items(guild_id: int):
@@ -2562,7 +2458,6 @@ def get_shop_items(guild_id: int):
     release_db(conn)
     return rows
 
-
 def get_shop_item(guild_id: int, item_id: int):
     conn, cur = get_db()
     cur.execute(
@@ -2574,7 +2469,6 @@ def get_shop_item(guild_id: int, item_id: int):
     cur.close()
     release_db(conn)
     return row
-
 
 def buy_shop_item(user_id: int, guild_id: int, item_id: int, amount: int = 1):
     """Returns (success: bool, message: str, role_id_or_None)."""
@@ -2604,7 +2498,6 @@ def buy_shop_item(user_id: int, guild_id: int, item_id: int, amount: int = 1):
     bought = f"{amount}x **{name}**" if amount > 1 else f"**{name}**"
     return True, f"✅ You bought {bought} for **{total:,}** coins!", int(role_id) if role_id else None
 
-
 def get_inventory(user_id: int):
     """Returns a list of (name, quantity, description, role_id) for a user's items."""
     conn, cur = get_db()
@@ -2618,7 +2511,6 @@ def get_inventory(user_id: int):
     cur.close()
     release_db(conn)
     return rows
-
 
 def build_inventory_text(display_name: str, user_id: int) -> str:
     custom = get_inventory(user_id)
@@ -2640,7 +2532,6 @@ def build_inventory_text(display_name: str, user_id: int) -> str:
         lines.append(f"┃ ⚡ Cooldown boost: {left // 60}m {left % 60}s left")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
-
 
 # ---------- Global shop items / effects ----------
 
@@ -2706,10 +2597,8 @@ ITEM_ALIASES = {
     "guard": "guard",
 }
 
-
 def resolve_item_key(name: str):
     return ITEM_ALIASES.get(name.strip().lower())
-
 
 def get_global_item_qty(user_id, item_key: str) -> int:
     conn, cur = get_db()
@@ -2722,10 +2611,8 @@ def get_global_item_qty(user_id, item_key: str) -> int:
     release_db(conn)
     return row[0] if row else 0
 
-
 def has_global_item(user_id, item_key: str) -> bool:
     return get_global_item_qty(user_id, item_key) > 0
-
 
 def add_global_item(user_id, item_key: str, amount: int = 1):
     conn, cur = get_db()
@@ -2737,7 +2624,6 @@ def add_global_item(user_id, item_key: str, amount: int = 1):
     conn.commit()
     cur.close()
     release_db(conn)
-
 
 def remove_global_item(user_id, item_key: str, amount: int = 1) -> bool:
     qty = get_global_item_qty(user_id, item_key)
@@ -2753,7 +2639,6 @@ def remove_global_item(user_id, item_key: str, amount: int = 1) -> bool:
     release_db(conn)
     return True
 
-
 def get_global_inventory(user_id):
     conn, cur = get_db()
     cur.execute(
@@ -2764,7 +2649,6 @@ def get_global_inventory(user_id):
     cur.close()
     release_db(conn)
     return rows
-
 
 def get_user_effects(user_id):
     conn, cur = get_db()
@@ -2786,7 +2670,6 @@ def get_user_effects(user_id):
     release_db(conn)
     return {"lucky_stacks": row[0] or 0, "cd_boost_until": row[1], "kiragpt_reply_count": row[2] or 0}
 
-
 def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
     current = get_user_effects(user_id)
     stacks = current["lucky_stacks"] if lucky_stacks is None else lucky_stacks
@@ -2802,10 +2685,8 @@ def set_user_effects(user_id, lucky_stacks=None, cd_boost_until=None):
     cur.close()
     release_db(conn)
 
-
 def get_kiragpt_reply_count(user_id) -> int:
     return get_user_effects(user_id)["kiragpt_reply_count"]
-
 
 def increment_kiragpt_reply_count(user_id):
     uid = user_id
@@ -2819,24 +2700,19 @@ def increment_kiragpt_reply_count(user_id):
     cur.close()
     release_db(conn)
 
-
 MAX_LUCKY_STACKS = 1
 MAX_ITEM_STACK = 5
-
 
 def get_lucky_stacks(user_id) -> int:
     return min(MAX_LUCKY_STACKS, get_user_effects(user_id)["lucky_stacks"])
 
-
 def get_cd_boost_until(user_id):
     return get_user_effects(user_id)["cd_boost_until"]
-
 
 def luck_chance(base: float, user_id) -> float:
     """Each lucky potion adds +0.5 to the win multiplier. Capped at 95%."""
     stacks = get_lucky_stacks(user_id)
     return min(0.95, base * (1 + 0.5 * stacks))
-
 
 def buy_global_item(user_id, item_key: str, amount: int = 1):
     item = GLOBAL_ITEMS[item_key]
@@ -2861,7 +2737,6 @@ def buy_global_item(user_id, item_key: str, amount: int = 1):
         extra = f"\nUse it with `.use {item_key}`"
     bought = f"{amount}x **{item['name']}**" if amount > 1 else f"**{item['name']}**"
     return True, f"✅ You bought {bought} for **{total:,}** coins!{extra}"
-
 
 def use_global_item(user_id, item_key: str):
     item = GLOBAL_ITEMS.get(item_key)
@@ -2890,7 +2765,6 @@ def use_global_item(user_id, item_key: str):
         )
     return "✅ Used."
 
-
 def build_shop_text(guild_id: int) -> str:
     lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃", "┃ **Global items**"]
     for key, item in GLOBAL_ITEMS.items():
@@ -2908,7 +2782,6 @@ def build_shop_text(guild_id: int) -> str:
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
 
-
 # ---------- Achievements ----------
 
 ACHIEVEMENTS = {
@@ -2922,7 +2795,6 @@ ACHIEVEMENTS = {
     "entrepreneur": {"label": "Entrepreneur", "description": "Sell an item on the market."},
 }
 
-
 def has_achievement(user_id, key: str) -> bool:
     conn, cur = get_db()
     cur.execute(
@@ -2933,7 +2805,6 @@ def has_achievement(user_id, key: str) -> bool:
     cur.close()
     release_db(conn)
     return row is not None
-
 
 def grant_achievement(user_id, key: str) -> bool:
     """Awards an achievement if the user doesn't already have it.
@@ -2952,7 +2823,6 @@ def grant_achievement(user_id, key: str) -> bool:
     release_db(conn)
     return granted
 
-
 def get_user_achievements(user_id):
     conn, cur = get_db()
     cur.execute(
@@ -2964,7 +2834,6 @@ def get_user_achievements(user_id):
     release_db(conn)
     return rows
 
-
 def build_achievements_text(display_name: str, user_id) -> str:
     earned = set(get_user_achievements(user_id))
     lines = [f"╭━━━〔 🏅 {display_name}'s ᴀᴄʜɪᴇᴠᴇᴍᴇɴᴛs 〕━━━⬣", "┃"]
@@ -2975,7 +2844,6 @@ def build_achievements_text(display_name: str, user_id) -> str:
     lines.append(f"┃ {len(earned)}/{len(ACHIEVEMENTS)} unlocked")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
-
 
 # ---------- Pets ----------
 
@@ -3002,7 +2870,6 @@ def get_pet(user_id):
         "last_fed": last_fed,
         "last_collected": last_collected,
     }
-
 
 def buy_pet(user_id, pet_type: str, pet_name: str):
     pet_type = pet_type.strip().lower()
@@ -3036,7 +2903,6 @@ def buy_pet(user_id, pet_type: str, pet_name: str):
         text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['pet_owner']['label']}**"
     return True, text
 
-
 def feed_pet(user_id):
     pet = get_pet(user_id)
     if pet is None:
@@ -3056,7 +2922,6 @@ def feed_pet(user_id):
     cur.close()
     release_db(conn)
     return f"🍖 You fed **{pet['pet_name']}**! Hunger is now **{new_hunger}/100**."
-
 
 def collect_pet_income(user_id):
     pet = get_pet(user_id)
@@ -3081,7 +2946,6 @@ def collect_pet_income(user_id):
     release_db(conn)
     return f"💰 **{pet['pet_name']}** earned you **{earned:,}** coins while it worked!"
 
-
 def build_pet_text(display_name: str, user_id) -> str:
     pet = get_pet(user_id)
     if pet is None:
@@ -3099,11 +2963,9 @@ def build_pet_text(display_name: str, user_id) -> str:
         "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
     )
 
-
 # ---------- Marriage ----------
 
 marriage_proposals = {}  # target_id -> proposer_id (in-memory, ephemeral by design)
-
 
 def get_partner(user_id):
     conn, cur = get_db()
@@ -3112,7 +2974,6 @@ def get_partner(user_id):
     cur.close()
     release_db(conn)
     return row[0] if row else None
-
 
 def propose_marriage(proposer_id, target_id):
     if proposer_id == target_id:
@@ -3123,7 +2984,6 @@ def propose_marriage(proposer_id, target_id):
         return "❌ That person is already married."
     marriage_proposals[target_id] = proposer_id
     return "💍 Proposal sent! They can accept with `.marryaccept`."
-
 
 def accept_marriage(user_id):
     proposer_id = marriage_proposals.get(user_id)
@@ -3149,7 +3009,6 @@ def accept_marriage(user_id):
         text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['married']['label']}**"
     return text
 
-
 def do_divorce(user_id):
     partner_id = get_partner(user_id)
     if partner_id is None:
@@ -3163,7 +3022,6 @@ def do_divorce(user_id):
     cur.close()
     release_db(conn)
     return "💔 You're now divorced."
-
 
 # ---------- Market ----------
 
@@ -3200,7 +3058,6 @@ def create_listing(seller_id, item_name_raw: str, quantity_str: str, price_str: 
         text += f"\n🏅 Achievement unlocked: **{ACHIEVEMENTS['entrepreneur']['label']}**"
     return True, text
 
-
 def get_listings():
     conn, cur = get_db()
     cur.execute(
@@ -3210,7 +3067,6 @@ def get_listings():
     cur.close()
     release_db(conn)
     return rows
-
 
 def build_market_text() -> str:
     rows = get_listings()
@@ -3224,7 +3080,6 @@ def build_market_text() -> str:
     lines.append("┃ Buy with `.buylisting <id>` • Cancel your own with `.cancellisting <id>`")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
-
 
 def buy_listing(buyer_id, listing_id_str: str):
     try:
@@ -3305,7 +3160,6 @@ def buy_listing(buyer_id, listing_id_str: str):
     item_name = GLOBAL_ITEMS.get(item_key, {}).get("name", item_key)
     return f"✅ Bought **{quantity}x {item_name}** for **{total:,}** coins!"
 
-
 def cancel_listing(user_id, listing_id_str: str):
     try:
         listing_id = int(listing_id_str)
@@ -3340,7 +3194,6 @@ def cancel_listing(user_id, listing_id_str: str):
 
     add_global_item(user_id, item_key, quantity)
     return "✅ Listing cancelled. Your items were returned."
-
 
 # ---------- Rob ----------
 
@@ -3384,8 +3237,6 @@ def do_rob(robber_id: int, victim_id: int):
         house_take(penalty)
         return f"🚨 You got caught! You paid a fine of **{penalty:,}** coins."
 
-
-
 @tasks.loop(hours=1)
 async def salary_payout_loop():
     """Checks hourly; pays out each jobholder's salary once
@@ -3414,11 +3265,9 @@ async def salary_payout_loop():
     cur.close()
     release_db(conn)
 
-
 @tasks.loop(minutes=15)
 async def loan_collect_loop():
     collect_overdue_loans()
-
 
 @tasks.loop(hours=24)
 async def bank_interest_loop():
@@ -3432,7 +3281,6 @@ async def bank_interest_loop():
     conn.commit()
     cur.close()
     release_db(conn)
-
 
 @bot.event
 async def on_ready():
@@ -3473,7 +3321,6 @@ async def on_ready():
         print(f"Failed to sync commands: {e}")
     await announce_restart_if_pending()
 
-
 async def announce_restart_if_pending():
     if get_meta("restart_announce_pending") != "1":
         return
@@ -3491,7 +3338,6 @@ async def announce_restart_if_pending():
     except Exception as e:
         print(f"Restart announce failed: {e}")
 
-
 def trigger_render_deploy():
     if not RENDER_DEPLOY_HOOK:
         return False, "RENDER_DEPLOY_HOOK is not set in Render."
@@ -3504,7 +3350,6 @@ def trigger_render_deploy():
             return False, f"Render returned {resp.status}."
     except Exception as e:
         return False, str(e)
-
 
 # ---------- Shared logic (used by both / and . versions) ----------
 
@@ -3519,7 +3364,6 @@ def get_8ball_answer():
     ]
     return random.choice(responses)
 
-
 def get_joke():
     jokes = [
         "Why do programmers prefer dark mode? Because light attracts bugs.",
@@ -3529,7 +3373,6 @@ def get_joke():
         "Why did the developer go broke? Because they used up all their cache.",
     ]
     return random.choice(jokes)
-
 
 def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) -> str:
     base = (
@@ -3565,7 +3408,6 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
         )
     return prompt
 
-
 async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None) -> str:
     if not groq_client:
         return "❌ XephonGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
@@ -3585,7 +3427,6 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         return text if text else "❌ XephonGPT didn't return anything — try rephrasing."
     except Exception as e:
         return f"❌ XephonGPT error: {e}"
-
 
 async def translate_text(language: str, text: str) -> str:
     if not groq_client:
@@ -3610,7 +3451,6 @@ async def translate_text(language: str, text: str) -> str:
     except Exception as e:
         return f"❌ Translation error: {e}"
 
-
 def build_translate_response(language: str, translated: str) -> str:
     return (
         f"🌐 *Translation ({language})*\n"
@@ -3618,12 +3458,10 @@ def build_translate_response(language: str, translated: str) -> str:
         f"{translated}"
     )
 
-
 def build_avatar_embed(user):
     embed = discord.Embed(title=f"{user.display_name}'s avatar")
     embed.set_image(url=user.display_avatar.url)
     return embed
-
 
 def build_userinfo_embed(member):
     embed = discord.Embed(title=f"User Info: {member.display_name}", color=discord.Color.blurple())
@@ -3635,7 +3473,6 @@ def build_userinfo_embed(member):
     roles = [r.mention for r in member.roles if r.name != "@everyone"]
     embed.add_field(name="Roles", value=", ".join(roles) if roles else "None", inline=False)
     return embed
-
 
 def build_profile_embed(member):
     """Everything about a player in one place: economy, leveling, job, pet,
@@ -3711,7 +3548,6 @@ def build_profile_embed(member):
 
     return embed
 
-
 # ---------- Fun / Utility Commands ----------
 
 @bot.tree.command(name="ping", description="Check the bot's latency")
@@ -3719,12 +3555,10 @@ async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
     await interaction.response.send_message(f"🏓 Pong! {latency_ms}ms")
 
-
 @bot.command(name="ping")
 async def ping_prefix(ctx: commands.Context):
     latency_ms = round(bot.latency * 1000)
     await ctx.reply(f"🏓 Pong! {latency_ms}ms")
-
 
 @bot.tree.command(name="8ball", description="Ask the magic 8-ball a question")
 @app_commands.describe(question="Your yes/no question")
@@ -3734,12 +3568,10 @@ async def eight_ball(interaction: discord.Interaction, question: str):
         f"🎱 **Q:** {question}\n**A:** {answer}"
     )
 
-
 @bot.command(name="8ball")
 async def eight_ball_prefix(ctx: commands.Context, *, question: str):
     answer = get_8ball_answer()
     await ctx.reply(f"🎱 **Q:** {question}\n**A:** {answer}")
-
 
 @bot.tree.command(name="avatar", description="Get a user's avatar")
 @app_commands.describe(user="The user to look up (defaults to you)")
@@ -3747,12 +3579,10 @@ async def avatar(interaction: discord.Interaction, user: discord.User = None):
     user = user or interaction.user
     await interaction.response.send_message(embed=build_avatar_embed(user))
 
-
 @bot.command(name="avatar")
 async def avatar_prefix(ctx: commands.Context, user: discord.User = None):
     user = user or ctx.author
     await ctx.reply(embed=build_avatar_embed(user))
-
 
 @bot.tree.command(name="userinfo", description="Get info about a server member")
 @app_commands.describe(member="The member to look up (defaults to you)")
@@ -3760,12 +3590,10 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member = No
     member = member or interaction.user
     await interaction.response.send_message(embed=build_userinfo_embed(member))
 
-
 @bot.command(name="userinfo")
 async def userinfo_prefix(ctx: commands.Context, member: discord.Member = None):
     member = member or ctx.author
     await ctx.reply(embed=build_userinfo_embed(member))
-
 
 @bot.tree.command(name="profile", description="See every stat for a player: economy, level, job, pet, marriage, achievements, inventory")
 @app_commands.describe(member="The member to look up (defaults to you)")
@@ -3780,7 +3608,6 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         return
     await interaction.followup.send(embed=embed)
 
-
 @bot.command(name="profile")
 async def profile_prefix(ctx: commands.Context, member: discord.Member = None):
     member = member or ctx.author
@@ -3792,7 +3619,6 @@ async def profile_prefix(ctx: commands.Context, member: discord.Member = None):
         return
     await ctx.reply(embed=embed)
 
-
 @bot.tree.command(name="poll", description="Create a quick yes/no poll")
 @app_commands.describe(question="The poll question")
 async def poll(interaction: discord.Interaction, question: str):
@@ -3803,7 +3629,6 @@ async def poll(interaction: discord.Interaction, question: str):
     await message.add_reaction("👍")
     await message.add_reaction("👎")
 
-
 @bot.command(name="poll")
 async def poll_prefix(ctx: commands.Context, *, question: str):
     embed = discord.Embed(title="📊 Poll", description=question, color=discord.Color.gold())
@@ -3812,21 +3637,17 @@ async def poll_prefix(ctx: commands.Context, *, question: str):
     await message.add_reaction("👍")
     await message.add_reaction("👎")
 
-
 @bot.tree.command(name="joke", description="Get a random joke")
 async def joke(interaction: discord.Interaction):
     await interaction.response.send_message(f"😄 {get_joke()}")
-
 
 @bot.command(name="joke")
 async def joke_prefix(ctx: commands.Context):
     await ctx.reply(f"😄 {get_joke()}")
 
-
 def is_kira_creator(user) -> bool:
     """True only if the person is a server Administrator."""
     return isinstance(user, discord.Member) and user.guild_permissions.administrator
-
 
 def get_kiragpt_session(user_id: str):
     if user_id not in kiragpt_sessions:
@@ -3837,9 +3658,7 @@ def get_kiragpt_session(user_id: str):
         }
     return kiragpt_sessions[user_id]
 
-
 MAX_REPLIES_FOR_NORMAL_USERS = 50
-
 
 async def handle_kiragpt_message(user, prompt: str, send_func):
     user_id = did(user.id)
@@ -3901,7 +3720,6 @@ async def handle_kiragpt_message(user, prompt: str, send_func):
         discord_file = discord.File(file_bytes, filename="xephongpt_response.txt")
         await send_func("📄 Response was long — sending as a file:", file=discord_file)
 
-
 @bot.tree.command(name="xephongpt", description="Talk to XephonGPT")
 @app_commands.describe(
     state="Mode: wild, Ai, or normal",
@@ -3959,7 +3777,6 @@ async def kiragpt(
         ephemeral=True,
     )
 
-
 @bot.command(name="xephongpt")
 async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
     user_id = did(ctx.author.id)
@@ -3986,14 +3803,12 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
                 await ctx.reply(text)
         await handle_kiragpt_message(ctx.author, prompt, send_func)
 
-
 @bot.tree.command(name="translate", description="Translate text into another language")
 @app_commands.describe(language="Target language (e.g. Spanish, French, Yoruba)", text="Text to translate")
 async def translate(interaction: discord.Interaction, language: str, text: str):
     await interaction.response.defer()
     translated = await translate_text(language, text)
     await interaction.followup.send(build_translate_response(language, translated))
-
 
 @bot.command(name="translate")
 async def translate_prefix(ctx: commands.Context, language: str, *, text: str = ""):
@@ -4003,7 +3818,6 @@ async def translate_prefix(ctx: commands.Context, language: str, *, text: str = 
     async with ctx.typing():
         translated = await translate_text(language, text)
         await ctx.reply(build_translate_response(language, translated))
-
 
 @bot.command(name="trt")
 async def translate_reply(ctx: commands.Context, *, language: str = ""):
@@ -4027,7 +3841,6 @@ async def translate_reply(ctx: commands.Context, *, language: str = ""):
         translated = await translate_text(language, replied.content)
         await ctx.reply(build_translate_response(language, translated))
 
-
 @bot.tree.context_menu(name="Translate to English")
 async def translate_context_menu(interaction: discord.Interaction, message: discord.Message):
     if not message.content:
@@ -4037,7 +3850,6 @@ async def translate_context_menu(interaction: discord.Interaction, message: disc
     translated = await translate_text("English", message.content)
     await interaction.followup.send(build_translate_response("English", translated), ephemeral=True)
 
-
 @bot.tree.command(name="afk", description="Set yourself as AFK")
 @app_commands.describe(reason="Why you're AFK (optional)")
 async def afk(interaction: discord.Interaction, reason: str = "busy"):
@@ -4046,54 +3858,44 @@ async def afk(interaction: discord.Interaction, reason: str = "busy"):
         f"You are now afk, reason: {reason}"
     )
 
-
 @bot.command(name="afk")
 async def afk_prefix(ctx: commands.Context, *, reason: str = "busy"):
     set_afk(did(ctx.author.id), reason)
     await ctx.reply(f"You are now afk, reason: {reason}")
 
-
 @bot.tree.command(name="bal", description="Check your account balance")
 async def bal(interaction: discord.Interaction):
     await interaction.response.send_message(build_balance_text(did(interaction.user.id)))
 
-
 @bot.command(name="bal")
 async def bal_prefix(ctx: commands.Context):
     await ctx.reply(build_balance_text(did(ctx.author.id)))
-
 
 @bot.tree.command(name="withdraw", description="Withdraw money from your bank to your wallet")
 @app_commands.describe(amount="Amount to withdraw, or 'all'")
 async def withdraw(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_withdraw(did(interaction.user.id), amount))
 
-
 @bot.command(name="withdraw", aliases=["wd"])
 async def withdraw_prefix(ctx: commands.Context, amount: str):
     await ctx.reply(do_withdraw(did(ctx.author.id), amount))
-
 
 @bot.tree.command(name="deposit", description="Deposit money from your wallet to your bank")
 @app_commands.describe(amount="Amount to deposit, or 'all'")
 async def deposit(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_deposit(did(interaction.user.id), amount))
 
-
 @bot.command(name="deposit", aliases=["dep"])
 async def deposit_prefix(ctx: commands.Context, amount: str):
     await ctx.reply(do_deposit(did(ctx.author.id), amount))
-
 
 @bot.tree.command(name="menu", description="Show all bot commands")
 async def menu(interaction: discord.Interaction):
     await interaction.response.send_message(build_menu_text())
 
-
 @bot.command(name="menu")
 async def menu_prefix(ctx: commands.Context):
     await ctx.reply(build_menu_text())
-
 
 def build_updateinfo_text() -> str:
     info = LATEST_UPDATE_INFO
@@ -4111,7 +3913,6 @@ def build_updateinfo_text() -> str:
     lines.append("┃ Full log: `.versions`")
     lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
     return "\n".join(lines)
-
 
 def build_version_history_text() -> str:
     """Discord caps a single message at 2000 characters. As VERSION_HISTORY
@@ -4150,26 +3951,21 @@ def build_version_history_text() -> str:
     lines.append(footer_template)
     return "\n".join(lines)
 
-
 @bot.tree.command(name="updateinfo", description="See what changed in the latest update")
 async def updateinfo(interaction: discord.Interaction):
     await interaction.response.send_message(build_updateinfo_text())
-
 
 @bot.command(name="updateinfo", aliases=["changelog"])
 async def updateinfo_prefix(ctx: commands.Context):
     await ctx.reply(build_updateinfo_text())
 
-
 @bot.tree.command(name="versions", description="See the full version history log")
 async def versions(interaction: discord.Interaction):
     await interaction.response.send_message(build_version_history_text())
 
-
 @bot.command(name="versions", aliases=["versionhistory", "history"])
 async def versions_prefix(ctx: commands.Context):
     await ctx.reply(build_version_history_text())
-
 
 # ---------- Gambling ----------
 
@@ -4195,7 +3991,6 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
     won = random.random() < luck_chance(0.5, user_id)
     result = side if won else ("tails" if side == "heads" else "heads")
     result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
-
 
     if won:
         payout = amount * 2
@@ -4224,17 +4019,14 @@ async def run_coinflip(user_id: int, side: str, amount_str: str):
             f"💵 Wallet: ${final_bal['wallet']:,}"
         )
 
-
 @bot.tree.command(name="cf", description="Bet on a coinflip")
 @app_commands.describe(side="heads or tails", amount="Amount to bet")
 async def cf(interaction: discord.Interaction, side: str, amount: str):
     await interaction.response.send_message(await run_coinflip(did(interaction.user.id), side, amount))
 
-
 @bot.command(name="cf", aliases=["coinflip"])
 async def cf_prefix(ctx: commands.Context, side: str, amount: str):
     await ctx.reply(await run_coinflip(did(ctx.author.id), side, amount))
-
 
 def build_roulette_spinning_text(bet_display: str, color_choice: str):
     return (
@@ -4243,7 +4035,6 @@ def build_roulette_spinning_text(bet_display: str, color_choice: str):
         f"Bet: *{bet_display}* on *{color_choice.upper()}*\n\n"
         "🔄 Spinning the wheel..."
     )
-
 
 def build_roulette_result_text(number, color_display, won, payout, wallet):
     header = (
@@ -4265,9 +4056,7 @@ def build_roulette_result_text(number, color_display, won, payout, wallet):
             f"💵 Wallet: ${wallet:,}"
         )
 
-
 ROULETTE_MULTIPLIER = {"red": 3, "black": 3, "green": 14}
-
 
 async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_func, edit_func):
     color_choice = color_choice.lower()
@@ -4317,7 +4106,6 @@ async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_fu
     result_text = build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
     await edit_func(sent, result_text)
 
-
 @bot.tree.command(name="roulette", description="Bet on roulette (red, black, or green)")
 @app_commands.describe(color="red, black, or green", amount="Amount to bet")
 async def roulette(interaction: discord.Interaction, color: str, amount: str):
@@ -4330,7 +4118,6 @@ async def roulette(interaction: discord.Interaction, color: str, amount: str):
 
     await run_roulette(did(interaction.user.id), color, amount, send_func, edit_func)
 
-
 @bot.command(name="roulette")
 async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
     async def send_func(text):
@@ -4341,7 +4128,6 @@ async def roulette_prefix(ctx: commands.Context, color: str, amount: str):
 
     await run_roulette(did(ctx.author.id), color, amount, send_func, edit_func)
 
-
 @bot.tree.command(name="storage", description="[Owner only] Show bot system status")
 async def storage(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
@@ -4349,12 +4135,10 @@ async def storage(interaction: discord.Interaction):
         return
     await interaction.response.send_message(build_storage_text())
 
-
 @bot.command(name="storage")
 @commands.is_owner()
 async def storage_prefix(ctx: commands.Context):
     await ctx.reply(build_storage_text())
-
 
 @bot.tree.command(name="restart", description="[Owner only] Deploy the latest commit and restart Xephon")
 async def restart(interaction: discord.Interaction):
@@ -4376,7 +4160,6 @@ async def restart(interaction: discord.Interaction):
         print(f"Could not set offline presence: {e}")
     await interaction.response.send_message("🔄 Xephon is going offline to apply the latest commit.")
 
-
 @bot.command(name="restart")
 @commands.is_owner()
 async def restart_prefix(ctx: commands.Context):
@@ -4395,7 +4178,6 @@ async def restart_prefix(ctx: commands.Context):
         print(f"Could not set offline presence: {e}")
     await ctx.reply("🔄 Xephon is going offline to apply the latest commit.")
 
-
 @bot.tree.command(name="stats", description="[Owner only] Show how many people use the bot")
 async def stats(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
@@ -4403,12 +4185,10 @@ async def stats(interaction: discord.Interaction):
         return
     await interaction.response.send_message(build_stats_text())
 
-
 @bot.command(name="stats")
 @commands.is_owner()
 async def stats_prefix(ctx: commands.Context):
     await ctx.reply(build_stats_text())
-
 
 @bot.tree.command(name="activity", description="[Owner only] See which commands people have been using")
 async def activity(interaction: discord.Interaction):
@@ -4417,12 +4197,10 @@ async def activity(interaction: discord.Interaction):
         return
     await interaction.response.send_message(build_activity_text())
 
-
 @bot.command(name="activity")
 @commands.is_owner()
 async def activity_prefix(ctx: commands.Context):
     await ctx.reply(build_activity_text())
-
 
 @bot.tree.command(name="clearcache", description="[Owner only] Clear the bot's cache and free up memory")
 async def clearcache(interaction: discord.Interaction):
@@ -4431,43 +4209,10 @@ async def clearcache(interaction: discord.Interaction):
         return
     await interaction.response.send_message(do_clearcache())
 
-
 @bot.command(name="clearcache")
 @commands.is_owner()
 async def clearcache_prefix(ctx: commands.Context):
     await ctx.reply(do_clearcache())
-
-
-RECHARGE_AMOUNT = 50_000_000
-RECHARGE_DAILY_LIMIT = 3
-
-
-def recharge_uses_today(user_id) -> int:
-    day = time.strftime("%Y-%m-%d", time.gmtime())
-    value = get_meta(f"recharge_uses:{user_id}:{day}")
-    return int(value) if value else 0
-
-
-def add_recharge_use(user_id) -> int:
-    day = time.strftime("%Y-%m-%d", time.gmtime())
-    used = recharge_uses_today(user_id) + 1
-    set_meta(f"recharge_uses:{user_id}:{day}", str(used))
-    return used
-
-
-def do_recharge(user_id):
-    used = recharge_uses_today(user_id)
-    if used >= RECHARGE_DAILY_LIMIT:
-        return f"❌ Recharge limit reached. You can use it **{RECHARGE_DAILY_LIMIT}** times per day."
-    bal = get_balance(user_id)
-    adjust_balance(user_id, wallet_delta=RECHARGE_AMOUNT)
-    used = add_recharge_use(user_id)
-    left = RECHARGE_DAILY_LIMIT - used
-    return (
-        f"⚡ Recharged! +**{RECHARGE_AMOUNT:,}** coins added to your wallet.\n"
-        f"Uses today: **{used}/{RECHARGE_DAILY_LIMIT}** ({left} left)"
-    )
-
 
 def do_reset(user_id, clear_xp: bool = False):
     update_balance(user_id, wallet=DEFAULT_WALLET, bank=DEFAULT_BANK)
@@ -4502,16 +4247,13 @@ def do_reset(user_id, clear_xp: bool = False):
         + ("XP and level were cleared." if clear_xp else "XP was kept. Use `.reset all` to clear XP too.")
     )
 
-
 TEST_WALLET = 999_999_999_999_999
-
 
 def has_tester_role(member) -> bool:
     if not isinstance(member, discord.Member):
         return False
     names = {role.name.lower().strip() for role in member.roles}
     return "tester" in names
-
 
 def snapshot_test_state(user_id):
     bal = get_balance(user_id)
@@ -4536,7 +4278,6 @@ def snapshot_test_state(user_id):
             effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None
         ),
     }
-
 
 def restore_test_state(user_id, snap):
     update_balance(user_id, wallet=snap["wallet"], bank=snap["bank"])
@@ -4569,7 +4310,6 @@ def restore_test_state(user_id, snap):
         cd_boost_until=until,
     )
 
-
 def do_test(user_id, turn_on: bool):
     if turn_on:
         if test_mode_on(user_id):
@@ -4595,7 +4335,6 @@ def do_test(user_id, turn_on: bool):
     set_meta(f"test_snapshot:{user_id}", "")
     return "🧪 Test mode is **off**. Extra money and items bought with test money were removed."
 
-
 @bot.tree.command(name="test", description="[VIP/tester] Turn infinite test money on or off")
 @app_commands.describe(state="on or off")
 @app_commands.choices(state=[
@@ -4612,7 +4351,6 @@ async def test_cmd(interaction: discord.Interaction, state: app_commands.Choice[
         print(f"test failed: {e}")
         await interaction.response.send_message(f"❌ Test failed: {e}", ephemeral=True)
 
-
 @bot.command(name="test")
 async def test_prefix(ctx: commands.Context, state: str):
     if not has_tester_role(ctx.author):
@@ -4628,7 +4366,6 @@ async def test_prefix(ctx: commands.Context, state: str):
         print(f"test failed: {e}")
         await ctx.reply(f"❌ Test failed: {e}", mention_author=False)
 
-
 @bot.tree.command(name="reset", description="[Owner only] Reset a player. XP stays unless all is true")
 @app_commands.describe(user="Player to reset. Leave empty to reset yourself.", all="Also clear XP and level")
 async def reset_cmd(interaction: discord.Interaction, user: discord.User = None, all: bool = False):
@@ -4637,7 +4374,6 @@ async def reset_cmd(interaction: discord.Interaction, user: discord.User = None,
         return
     target = user or interaction.user
     await interaction.response.send_message(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=all))
-
 
 @bot.command(name="reset")
 @commands.is_owner()
@@ -4656,110 +4392,89 @@ async def reset_prefix(ctx: commands.Context, mode: str = None, user: discord.Us
             return
     await ctx.reply(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=clear_xp), mention_author=False)
 
-
 @bot.tree.command(name="fish", description="Go fishing for coins")
 async def fish(interaction: discord.Interaction):
     await interaction.response.send_message(do_fish(did(interaction.user.id)))
-
 
 @bot.command(name="fish")
 async def fish_prefix(ctx: commands.Context):
     await ctx.reply(do_fish(did(ctx.author.id)))
 
-
 @bot.tree.command(name="beg", description="Beg for some coins")
 async def beg(interaction: discord.Interaction):
     await interaction.response.send_message(do_beg(did(interaction.user.id)))
-
 
 @bot.command(name="beg")
 async def beg_prefix(ctx: commands.Context):
     await ctx.reply(do_beg(did(ctx.author.id)))
 
-
 @bot.tree.command(name="dig", description="Dig for buried coins")
 async def dig(interaction: discord.Interaction):
     await interaction.response.send_message(do_dig(did(interaction.user.id)))
 
-
 @bot.command(name="dig")
 async def dig_prefix(ctx: commands.Context):
     await ctx.reply(do_dig(did(ctx.author.id)))
-
 
 @bot.tree.command(name="loan", description="Borrow coins from the bot bank")
 @app_commands.describe(amount="Amount to borrow. Leave empty to see your loan.")
 async def loan_cmd(interaction: discord.Interaction, amount: str = None):
     await interaction.response.send_message(take_loan(did(interaction.user.id), amount))
 
-
 @bot.command(name="loan")
 async def loan_prefix(ctx: commands.Context, *, amount: str = None):
     await ctx.reply(take_loan(did(ctx.author.id), amount))
-
 
 @bot.tree.command(name="payloan", description="Pay back your loan")
 @app_commands.describe(amount="Amount to pay, or all")
 async def payloan_cmd(interaction: discord.Interaction, amount: str = "all"):
     await interaction.response.send_message(pay_loan(did(interaction.user.id), amount))
 
-
 @bot.command(name="payloan")
 async def payloan_prefix(ctx: commands.Context, *, amount: str = "all"):
     await ctx.reply(pay_loan(did(ctx.author.id), amount))
-
 
 @bot.tree.command(name="daily", description="Claim your daily reward")
 async def daily(interaction: discord.Interaction):
     await interaction.response.send_message(do_daily(did(interaction.user.id)))
 
-
 @bot.command(name="daily")
 async def daily_prefix(ctx: commands.Context):
     await ctx.reply(do_daily(did(ctx.author.id)))
-
 
 @bot.tree.command(name="work", description="Work a job for coins")
 async def work(interaction: discord.Interaction):
     await interaction.response.send_message(do_work(did(interaction.user.id)))
 
-
 @bot.command(name="work")
 async def work_prefix(ctx: commands.Context):
     await ctx.reply(do_work(did(ctx.author.id)))
-
 
 @bot.tree.command(name="setjob", description="Get randomly assigned a job that pays you a salary automatically")
 async def setjob(interaction: discord.Interaction):
     job_key = random.choice(list(JOBS.keys()))
     await interaction.response.send_message(set_job(did(interaction.user.id), job_key))
 
-
 @bot.command(name="setjob")
 async def setjob_prefix(ctx: commands.Context):
     job_key = random.choice(list(JOBS.keys()))
     await ctx.reply(set_job(did(ctx.author.id), job_key))
 
-
 @bot.tree.command(name="myjob", description="See your current job and salary")
 async def myjob(interaction: discord.Interaction):
     await interaction.response.send_message(build_myjob_text(did(interaction.user.id)))
-
 
 @bot.command(name="myjob")
 async def myjob_prefix(ctx: commands.Context):
     await ctx.reply(build_myjob_text(did(ctx.author.id)))
 
-
 @bot.tree.command(name="jobs", description="See all available jobs")
 async def jobs_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(build_jobs_list_text())
 
-
 @bot.command(name="jobs")
 async def jobs_prefix(ctx: commands.Context):
     await ctx.reply(build_jobs_list_text())
-
 
 @bot.tree.command(name="treasury", description="See the server treasury (funded by taxes)")
 async def treasury(interaction: discord.Interaction):
@@ -4768,14 +4483,12 @@ async def treasury(interaction: discord.Interaction):
         f"🏦 Bot bank: **${get_bot_bank():,}** (gambling losses + loan repayments)"
     )
 
-
 @bot.command(name="treasury")
 async def treasury_prefix(ctx: commands.Context):
     await ctx.reply(
         f"🏛️ Server treasury: **${get_treasury():,}** (salary tax)\n"
         f"🏦 Bot bank: **${get_bot_bank():,}** (gambling losses + loan repayments)"
     )
-
 
 # ---------- Pet commands ----------
 
@@ -4785,32 +4498,26 @@ async def buypet(interaction: discord.Interaction, pet_type: str, name: str):
     success, message = buy_pet(did(interaction.user.id), pet_type, name)
     await interaction.response.send_message(message)
 
-
 @bot.command(name="buypet")
 async def buypet_prefix(ctx: commands.Context, pet_type: str, *, name: str = ""):
     success, message = buy_pet(did(ctx.author.id), pet_type, name)
     await ctx.reply(message)
 
-
 @bot.tree.command(name="feedpet", description="Feed your pet")
 async def feedpet(interaction: discord.Interaction):
     await interaction.response.send_message(feed_pet(did(interaction.user.id)))
-
 
 @bot.command(name="feedpet")
 async def feedpet_prefix(ctx: commands.Context):
     await ctx.reply(feed_pet(did(ctx.author.id)))
 
-
 @bot.tree.command(name="collectpet", description="Collect the coins your pet has earned")
 async def collectpet(interaction: discord.Interaction):
     await interaction.response.send_message(collect_pet_income(did(interaction.user.id)))
 
-
 @bot.command(name="collectpet")
 async def collectpet_prefix(ctx: commands.Context):
     await ctx.reply(collect_pet_income(did(ctx.author.id)))
-
 
 @bot.tree.command(name="pet", description="See your (or someone else's) pet")
 @app_commands.describe(user="The user to check (leave blank for yourself)")
@@ -4818,12 +4525,10 @@ async def pet(interaction: discord.Interaction, user: discord.User = None):
     target = user or interaction.user
     await interaction.response.send_message(build_pet_text(target.display_name, did(target.id)))
 
-
 @bot.command(name="pet")
 async def pet_prefix(ctx: commands.Context, user: discord.User = None):
     target = user or ctx.author
     await ctx.reply(build_pet_text(target.display_name, did(target.id)))
-
 
 # ---------- Marriage commands ----------
 
@@ -4835,7 +4540,6 @@ async def marry(interaction: discord.Interaction, user: discord.User):
         return
     await interaction.response.send_message(propose_marriage(did(interaction.user.id), did(user.id)))
 
-
 @bot.command(name="marry")
 async def marry_prefix(ctx: commands.Context, user: discord.Member):
     if user.bot:
@@ -4843,26 +4547,21 @@ async def marry_prefix(ctx: commands.Context, user: discord.Member):
         return
     await ctx.reply(propose_marriage(did(ctx.author.id), did(user.id)))
 
-
 @bot.tree.command(name="marryaccept", description="Accept a pending marriage proposal")
 async def marryaccept(interaction: discord.Interaction):
     await interaction.response.send_message(accept_marriage(did(interaction.user.id)))
-
 
 @bot.command(name="marryaccept")
 async def marryaccept_prefix(ctx: commands.Context):
     await ctx.reply(accept_marriage(did(ctx.author.id)))
 
-
 @bot.tree.command(name="divorce", description="End your marriage")
 async def divorce(interaction: discord.Interaction):
     await interaction.response.send_message(do_divorce(did(interaction.user.id)))
 
-
 @bot.command(name="divorce")
 async def divorce_prefix(ctx: commands.Context):
     await ctx.reply(do_divorce(did(ctx.author.id)))
-
 
 @bot.tree.command(name="partner", description="See who you're (or someone else is) married to")
 @app_commands.describe(user="The user to check (leave blank for yourself)")
@@ -4874,7 +4573,6 @@ async def partner(interaction: discord.Interaction, user: discord.User = None):
         return
     await interaction.response.send_message(f"💍 **{target.display_name}** is married to <@{partner_id.split(':', 1)[-1]}>.")
 
-
 @bot.command(name="partner")
 async def partner_prefix(ctx: commands.Context, user: discord.Member = None):
     target = user or ctx.author
@@ -4884,7 +4582,6 @@ async def partner_prefix(ctx: commands.Context, user: discord.Member = None):
         return
     await ctx.reply(f"💍 **{target.display_name}** is married to <@{partner_id.split(':', 1)[-1]}>.")
 
-
 # ---------- Achievements command ----------
 
 @bot.tree.command(name="achievements", description="See your (or someone else's) achievements")
@@ -4893,12 +4590,10 @@ async def achievements(interaction: discord.Interaction, user: discord.User = No
     target = user or interaction.user
     await interaction.response.send_message(build_achievements_text(target.display_name, did(target.id)))
 
-
 @bot.command(name="achievements", aliases=["badges"])
 async def achievements_prefix(ctx: commands.Context, user: discord.User = None):
     target = user or ctx.author
     await ctx.reply(build_achievements_text(target.display_name, did(target.id)))
-
 
 # ---------- Market commands ----------
 
@@ -4908,54 +4603,44 @@ async def sell(interaction: discord.Interaction, item: str, quantity: str, price
     success, message = create_listing(did(interaction.user.id), item, quantity, price)
     await interaction.response.send_message(message)
 
-
 @bot.command(name="sell")
 async def sell_prefix(ctx: commands.Context, item: str, quantity: str, price: str):
     success, message = create_listing(did(ctx.author.id), item, quantity, price)
     await ctx.reply(message)
 
-
 @bot.tree.command(name="market", description="Browse the player market")
 async def market(interaction: discord.Interaction):
     await interaction.response.send_message(build_market_text())
 
-
 @bot.command(name="market")
 async def market_prefix(ctx: commands.Context):
     await ctx.reply(build_market_text())
-
 
 @bot.tree.command(name="buylisting", description="Buy a listing from the player market")
 @app_commands.describe(listing_id="The listing ID (see .market)")
 async def buylisting(interaction: discord.Interaction, listing_id: str):
     await interaction.response.send_message(buy_listing(did(interaction.user.id), listing_id))
 
-
 @bot.command(name="buylisting")
 async def buylisting_prefix(ctx: commands.Context, listing_id: str):
     await ctx.reply(buy_listing(did(ctx.author.id), listing_id))
-
 
 @bot.tree.command(name="cancellisting", description="Cancel your own market listing")
 @app_commands.describe(listing_id="The listing ID to cancel")
 async def cancellisting(interaction: discord.Interaction, listing_id: str):
     await interaction.response.send_message(cancel_listing(did(interaction.user.id), listing_id))
 
-
 @bot.command(name="cancellisting")
 async def cancellisting_prefix(ctx: commands.Context, listing_id: str):
     await ctx.reply(cancel_listing(did(ctx.author.id), listing_id))
-
 
 @bot.tree.command(name="lb", description="Show the richest users")
 async def lb(interaction: discord.Interaction):
     await interaction.response.send_message(build_leaderboard_text())
 
-
 @bot.command(name="lb", aliases=["top", "leaderboard"])
 async def lb_prefix(ctx: commands.Context):
     await ctx.reply(build_leaderboard_text())
-
 
 def build_rank_text(user_id: int, display_name: str) -> str:
     data = get_level_data(user_id)
@@ -4966,7 +4651,6 @@ def build_rank_text(user_id: int, display_name: str) -> str:
         f"XP: **{data['xp']:,} / {needed:,}**"
     )
 
-
 def build_ranklb_text() -> str:
     rows = get_xp_leaderboard()
     if not rows:
@@ -4976,29 +4660,24 @@ def build_ranklb_text() -> str:
         lines.append(f"**{i}.** <@{user_id}> — Level {level} ({xp:,} XP)")
     return "\n".join(lines)
 
-
 @bot.tree.command(name="rank", description="See your (or someone else's) level and XP")
 @app_commands.describe(user="The user to check (leave blank for yourself)")
 async def rank(interaction: discord.Interaction, user: discord.User = None):
     target = user or interaction.user
     await interaction.response.send_message(build_rank_text(did(target.id), target.display_name))
 
-
 @bot.command(name="rank")
 async def rank_prefix(ctx: commands.Context, user: discord.User = None):
     target = user or ctx.author
     await ctx.reply(build_rank_text(did(target.id), target.display_name))
 
-
 @bot.tree.command(name="ranklb", description="See the level leaderboard")
 async def ranklb(interaction: discord.Interaction):
     await interaction.response.send_message(build_ranklb_text())
 
-
 @bot.command(name="ranklb", aliases=["levellb", "levels"])
 async def ranklb_prefix(ctx: commands.Context):
     await ctx.reply(build_ranklb_text())
-
 
 # ---------- Mines ----------
 
@@ -5021,12 +4700,10 @@ async def mines_prefix(ctx: commands.Context, *args):
     mines_str = args[1] if len(args) > 1 else None
     await ctx.reply(start_mines(user_id, bet_str, mines_str))
 
-
 @bot.tree.command(name="mines", description="Start a mines game")
 @app_commands.describe(bet="Amount to bet, or 'all'", mines="Number of mines (1-24, default 3)")
 async def mines_start(interaction: discord.Interaction, bet: str, mines: int = 3):
     await interaction.response.send_message(start_mines(did(interaction.user.id), bet, str(mines)))
-
 
 @bot.command(name="blackjack", aliases=["bj"])
 async def blackjack_prefix(ctx: commands.Context, action: str = None):
@@ -5042,23 +4719,19 @@ async def blackjack_prefix(ctx: commands.Context, action: str = None):
         return
     await ctx.reply(start_blackjack(user_id, action))
 
-
 @bot.tree.command(name="blackjack", description="Start a blackjack game")
 @app_commands.describe(bet="Amount to bet, or 'all'")
 async def blackjack_start(interaction: discord.Interaction, bet: str):
     await interaction.response.send_message(start_blackjack(did(interaction.user.id), bet))
-
 
 @bot.tree.command(name="rob", description="Attempt to rob another user")
 @app_commands.describe(user="The user to rob")
 async def rob(interaction: discord.Interaction, user: discord.User):
     await interaction.response.send_message(do_rob(did(interaction.user.id), did(user.id)))
 
-
 @bot.command(name="rob")
 async def rob_prefix(ctx: commands.Context, user: discord.User):
     await ctx.reply(do_rob(did(ctx.author.id), did(user.id)))
-
 
 SHOP_ITEM_CHOICES = [
     app_commands.Choice(name="Vx — 100,000 coins", value="vx"),
@@ -5069,7 +4742,6 @@ SHOP_ITEM_CHOICES = [
     app_commands.Choice(name="Shovel — 1,000 coins", value="shovel"),
     app_commands.Choice(name="Guard — 50,000 coins", value="guard"),
 ]
-
 
 async def apply_shop_purchase(send_func, user, guild, item_name: str, amount: int = 1):
     success, message, role_id = handle_buy(did(user.id), guild.id, item_name, amount)
@@ -5082,7 +4754,6 @@ async def apply_shop_purchase(send_func, user, guild, item_name: str, amount: in
             except discord.Forbidden:
                 message += "\n⚠️ Couldn't assign the role — check my role permissions."
     await send_func(message)
-
 
 @bot.tree.command(name="shop", description="Open the shop — pick an item and how many to buy")
 @app_commands.describe(item="Item to buy", amount="How many to buy")
@@ -5106,14 +4777,12 @@ async def shop(
         amount,
     )
 
-
 @bot.command(name="shop")
 async def shop_prefix(ctx: commands.Context):
     if ctx.guild is None:
         await ctx.reply("❌ Use this command in a server.")
         return
     await ctx.reply(build_shop_text(ctx.guild.id))
-
 
 def handle_buy(user_id: int, guild_id: int, item_name: str, amount: int = 1):
     key = resolve_item_key(item_name)
@@ -5125,7 +4794,6 @@ def handle_buy(user_id: int, guild_id: int, item_name: str, amount: int = 1):
         return False, "❌ Unknown item. Use `.shop` to see names and IDs.", None
     return buy_shop_item(user_id, guild_id, item_id, amount)
 
-
 def parse_buy_args(raw: str):
     """Split '.buy vx 3' into (item_name, amount)."""
     parts = raw.strip().split()
@@ -5134,7 +4802,6 @@ def parse_buy_args(raw: str):
     if len(parts) >= 2 and parts[-1].isdigit():
         return " ".join(parts[:-1]), max(1, int(parts[-1]))
     return raw.strip(), 1
-
 
 @bot.tree.command(name="buy", description="Buy an item from the shop")
 @app_commands.describe(item="Pick an item or type a server item ID", amount="How many to buy")
@@ -5155,7 +4822,6 @@ async def buy(
         amount,
     )
 
-
 @bot.command(name="buy")
 async def buy_prefix(ctx: commands.Context, *, item: str):
     if ctx.guild is None:
@@ -5163,7 +4829,6 @@ async def buy_prefix(ctx: commands.Context, *, item: str):
         return
     item_name, amount = parse_buy_args(item)
     await apply_shop_purchase(ctx.reply, ctx.author, ctx.guild, item_name, amount)
-
 
 @bot.tree.command(name="use", description="Use a consumable item (vx, v9, lucky)")
 @app_commands.describe(item="vx, v9, or lucky")
@@ -5174,7 +4839,6 @@ async def use_item(interaction: discord.Interaction, item: str):
         return
     await interaction.response.send_message(use_global_item(did(interaction.user.id), key))
 
-
 @bot.command(name="use")
 async def use_item_prefix(ctx: commands.Context, *, item: str):
     key = resolve_item_key(item)
@@ -5183,12 +4847,10 @@ async def use_item_prefix(ctx: commands.Context, *, item: str):
         return
     await ctx.reply(use_global_item(did(ctx.author.id), key))
 
-
 @bot.tree.command(name="help", description="Show help for one command")
 @app_commands.describe(command="Command name")
 async def help_slash(interaction: discord.Interaction, command: str):
     await interaction.response.send_message(build_help_text(command))
-
 
 @bot.command(name="help")
 async def help_prefix(ctx: commands.Context, *, command: str = ""):
@@ -5197,19 +4859,16 @@ async def help_prefix(ctx: commands.Context, *, command: str = ""):
         return
     await ctx.reply(build_help_text(command))
 
-
 @bot.tree.command(name="inventory", description="See your (or someone else's) items")
 @app_commands.describe(user="The user to check (leave blank for yourself)")
 async def inventory(interaction: discord.Interaction, user: discord.User = None):
     target = user or interaction.user
     await interaction.response.send_message(build_inventory_text(target.display_name, did(target.id)))
 
-
 @bot.command(name="inventory", aliases=["inv"])
 async def inventory_prefix(ctx: commands.Context, user: discord.User = None):
     target = user or ctx.author
     await ctx.reply(build_inventory_text(target.display_name, did(target.id)))
-
 
 @bot.tree.command(name="setlevelrole", description="[Admin] Set a role reward for reaching a level")
 @app_commands.describe(level="The level to reward", role="The role to grant")
@@ -5220,7 +4879,6 @@ async def setlevelrole(interaction: discord.Interaction, level: int, role: disco
     set_level_role(interaction.guild.id, level, role.id)
     await interaction.response.send_message(f"✅ Users will now get **{role.name}** at level **{level}**.")
 
-
 @bot.command(name="setlevelrole")
 async def setlevelrole_prefix(ctx: commands.Context, level: int, role: discord.Role):
     if not is_kira_creator(ctx.author):
@@ -5228,7 +4886,6 @@ async def setlevelrole_prefix(ctx: commands.Context, level: int, role: discord.R
         return
     set_level_role(ctx.guild.id, level, role.id)
     await ctx.reply(f"✅ Users will now get **{role.name}** at level **{level}**.")
-
 
 @bot.tree.command(name="give", description="[Admin] Give a role to a user directly")
 @app_commands.describe(user="The user to give the role to", role="The role to give")
@@ -5248,7 +4905,6 @@ async def give(interaction: discord.Interaction, user: discord.Member, role: dis
             f"must sit above **{role.name}** in Server Settings → Roles."
         )
 
-
 @bot.command(name="give")
 async def give_prefix(ctx: commands.Context, user: discord.Member, role: discord.Role):
     if not is_kira_creator(ctx.author):
@@ -5265,7 +4921,6 @@ async def give_prefix(ctx: commands.Context, user: discord.Member, role: discord
             f"❌ Couldn't give **{role.name}** — the bot needs **Manage Roles** and its role "
             f"must sit above **{role.name}** in Server Settings → Roles."
         )
-
 
 @bot.tree.command(name="take", description="[Admin] Strip a role from a user directly")
 @app_commands.describe(user="The user to remove the role from", role="The role to remove")
@@ -5285,7 +4940,6 @@ async def take(interaction: discord.Interaction, user: discord.Member, role: dis
             f"must sit above **{role.name}** in Server Settings → Roles."
         )
 
-
 @bot.command(name="take")
 async def take_prefix(ctx: commands.Context, user: discord.Member, role: discord.Role):
     if not is_kira_creator(ctx.author):
@@ -5303,7 +4957,6 @@ async def take_prefix(ctx: commands.Context, user: discord.Member, role: discord
             f"must sit above **{role.name}** in Server Settings → Roles."
         )
 
-
 @bot.tree.command(name="levelroles", description="See all configured level role rewards")
 async def levelroles(interaction: discord.Interaction):
     rows = list_level_roles(interaction.guild.id)
@@ -5315,7 +4968,6 @@ async def levelroles(interaction: discord.Interaction):
         lines.append(f"Level {level} → <@&{role_id}>")
     await interaction.response.send_message("\n".join(lines))
 
-
 @bot.command(name="levelroles")
 async def levelroles_prefix(ctx: commands.Context):
     rows = list_level_roles(ctx.guild.id)
@@ -5326,7 +4978,6 @@ async def levelroles_prefix(ctx: commands.Context):
     for level, role_id in rows:
         lines.append(f"Level {level} → <@&{role_id}>")
     await ctx.reply("\n".join(lines))
-
 
 async def _sync_roles_for(member: discord.Member):
     """Re-applies any level role rewards the member has earned but doesn't
@@ -5361,7 +5012,6 @@ async def _sync_roles_for(member: discord.Member):
         parts.append(f"⚠️ Configured role(s) for level(s) {', '.join(gone)} no longer exist on this server.")
     return "\n".join(parts)
 
-
 @bot.tree.command(name="syncroles", description="Re-apply any level role rewards you're missing")
 async def syncroles(interaction: discord.Interaction):
     if interaction.guild is None or not isinstance(interaction.user, discord.Member):
@@ -5369,14 +5019,12 @@ async def syncroles(interaction: discord.Interaction):
         return
     await interaction.response.send_message(await _sync_roles_for(interaction.user))
 
-
 @bot.command(name="syncroles")
 async def syncroles_prefix(ctx: commands.Context):
     if ctx.guild is None:
         await ctx.reply("❌ This only works inside a server.")
         return
     await ctx.reply(await _sync_roles_for(ctx.author))
-
 
 @bot.tree.command(name="slot", description="Play the slot machine")
 @app_commands.describe(amount="Amount to bet, or 'all'")
@@ -5390,7 +5038,6 @@ async def slot(interaction: discord.Interaction, amount: str):
 
     await run_slot(did(interaction.user.id), amount, send_func, edit_func)
 
-
 @bot.command(name="slot")
 async def slot_prefix(ctx: commands.Context, amount: str):
     async def send_func(text):
@@ -5401,22 +5048,18 @@ async def slot_prefix(ctx: commands.Context, amount: str):
 
     await run_slot(did(ctx.author.id), amount, send_func, edit_func)
 
-
 @bot.tree.command(name="roll", description="Roll a dice and bet on 4-6 to win")
 @app_commands.describe(amount="Amount to bet, or 'all'")
 async def roll(interaction: discord.Interaction, amount: str):
     await interaction.response.send_message(do_dice(did(interaction.user.id), amount))
 
-
 @bot.command(name="roll")
 async def roll_prefix(ctx: commands.Context, amount: str):
     await ctx.reply(do_dice(did(ctx.author.id), amount))
 
-
 @bot.command(name="cds", aliases=["cooldowns"])
 async def cds_prefix(ctx: commands.Context):
     await ctx.reply(build_cooldowns_text(did(ctx.author.id)))
-
 
 @bot.tree.command(name="donate", description="Donate money to another user")
 @app_commands.describe(amount="Amount to donate, or 'all'", user="The user to donate to")
@@ -5430,7 +5073,6 @@ async def donate(interaction: discord.Interaction, amount: str, user: discord.Us
         return
     await interaction.response.send_message(f"✅ Successfully donated ${donated:,} to {user.mention}")
 
-
 @bot.command(name="donate")
 async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member):
     if user.bot:
@@ -5441,7 +5083,6 @@ async def donate_prefix(ctx: commands.Context, amount: str, user: discord.Member
         await ctx.reply(error)
         return
     await ctx.reply(f"✅ Successfully donated ${donated:,} to {user.mention}")
-
 
 async def send_member_tags(channel, text: str):
     guild = channel.guild
@@ -5468,7 +5109,6 @@ async def send_member_tags(channel, text: str):
         await channel.send(chunk, allowed_mentions=allow)
     return len(members)
 
-
 NCM_ALLOWED = {
     "ping", "8ball", "avatar", "userinfo", "profile", "joke", "translate", "trt",
     "afk", "bal", "withdraw", "deposit", "cf", "roulette", "fish", "beg", "dig",
@@ -5486,17 +5126,14 @@ NCM_CONFIRM = {
 ncm_enabled = {}
 ncm_pending = {}
 
-
 def ncm_is_on(user_id: str) -> bool:
     if user_id in ncm_enabled:
         return ncm_enabled[user_id]
     return get_meta(f"ncm:{user_id}") == "on"
 
-
 def set_ncm(user_id: str, enabled: bool):
     ncm_enabled[user_id] = enabled
     set_meta(f"ncm:{user_id}", "on" if enabled else "off")
-
 
 def normalize_amount_words(text: str) -> str:
     import re
@@ -5509,7 +5146,6 @@ def normalize_amount_words(text: str) -> str:
                 "trillion": 1_000_000_000_000}.get(word, 1)
         return str(int(value * mult))
     return re.sub(r"(\d+(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)\b", repl, text, flags=re.I)
-
 
 NCM_ALIASES = {
     "balance": "bal", "money": "bal", "wallet": "bal",
@@ -5539,7 +5175,6 @@ def match_command_in_sentence(text: str):
     args = re.sub(r"\b(show|check|me|my|the|please|to)\b", " ", args, flags=re.I)
     args = normalize_amount_words(args)
     return found, " ".join(args.split())
-
 
 async def parse_ncm_request(text: str) -> tuple:
     matched, args = match_command_in_sentence(text)
@@ -5580,7 +5215,6 @@ async def parse_ncm_request(text: str) -> tuple:
         print(f"NCM parse failed: {e}")
         return None, ""
 
-
 async def run_ncm_command(message, command: str, args: str):
     cmd = bot.get_command(command)
     if cmd is None:
@@ -5593,7 +5227,6 @@ async def run_ncm_command(message, command: str, args: str):
     ctx.view = commands.view.StringView(args or "")
     ctx.view.skip_ws()
     await bot.invoke(ctx)
-
 
 @bot.tree.command(name="ncm", description="Turn No Command Mode on or off")
 @app_commands.describe(state="on or off")
@@ -5612,7 +5245,6 @@ async def ncm(interaction: discord.Interaction, state: app_commands.Choice[str])
         ncm_pending.pop(did(interaction.user.id), None)
         await interaction.response.send_message("🔇 No Command Mode is **off**.")
 
-
 @bot.command(name="ncm")
 async def ncm_prefix(ctx: commands.Context, state: str):
     state = state.lower()
@@ -5630,7 +5262,6 @@ async def ncm_prefix(ctx: commands.Context, state: str):
         ncm_pending.pop(did(ctx.author.id), None)
         await ctx.reply("🔇 No Command Mode is **off**.", mention_author=False)
 
-
 @bot.tree.command(name="ptag", description="[Owner only] Mention every member")
 @app_commands.describe(message="Message to send with the tags")
 async def ptag(interaction: discord.Interaction, message: str):
@@ -5644,7 +5275,6 @@ async def ptag(interaction: discord.Interaction, message: str):
     count = await send_member_tags(interaction.channel, message)
     await interaction.followup.send(f"Tagged {count} member(s).", ephemeral=True)
 
-
 @bot.command(name="ptag")
 @commands.guild_only()
 async def ptag_prefix(ctx: commands.Context, *, message: str):
@@ -5656,7 +5286,6 @@ async def ptag_prefix(ctx: commands.Context, *, message: str):
     except Exception as e:
         print(f"ptag delete failed: {e}")
     await send_member_tags(ctx.channel, message)
-
 
 @bot.tree.command(name="auth", description="[Owner only] Toggle whether the bot responds in this server")
 @app_commands.describe(state="on or off")
@@ -5674,7 +5303,6 @@ async def auth(interaction: discord.Interaction, state: app_commands.Choice[str]
     set_auth_state(interaction.guild.id, state.value == "on")
     await interaction.response.send_message(f"🔐 Bot responses turned **{state.value}** for this server.")
 
-
 @bot.command(name="auth")
 @commands.is_owner()
 async def auth_prefix(ctx: commands.Context, state: str):
@@ -5687,7 +5315,6 @@ async def auth_prefix(ctx: commands.Context, state: str):
         return
     set_auth_state(ctx.guild.id, state == "on")
     await ctx.reply(f"🔐 Bot responses turned **{state}** for this server.")
-
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -5810,8 +5437,6 @@ async def on_message(message: discord.Message):
             return
 
     await bot.process_commands(message)
-
-
 
 if __name__ == "__main__":
     print("Xephon bot starting")
