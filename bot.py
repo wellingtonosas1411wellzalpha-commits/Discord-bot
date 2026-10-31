@@ -29,10 +29,20 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.0"
+BOT_VERSION = "1.18.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.1",
+        "date": "2026-10-31",
+        "changes": [
+            "Moved .ptag to the Owner menu",
+            "Fixed .test on/off and accepted vip/tester role names",
+            "NCM now runs a command when its name is in the sentence",
+            "Cleaner command menu",
+        ],
+    },
     {
         "version": "1.18.0",
         "date": "2026-10-31",
@@ -1468,113 +1478,63 @@ COMMAND_HELP = {
 
 def build_menu_text():
     return (
-        "╭━━━〔 Command Menu 〕━━━⬣\n"
-        "┃\n"
-        "┃ Type `.help <command>` for details\n"
-        "┃\n"
-        "┃ ── XephonGPT ──\n"
-        "┃ • xephongpt on / off\n"
-        "┃ • xephongpt wild on / ai on / normal on\n"
-        "┃ • xephongpt <message>\n"
-        "┃\n"
-        "┃ ── Fun ──\n"
-        "┃ • ping\n"
-        "┃ • 8ball\n"
-        "┃ • joke\n"
-        "┃ • translate\n"
-        "┃ • trt\n"
-        "┃\n"
-        "┃ ── Info ──\n"
-        "┃ • avatar\n"
-        "┃ • userinfo\n"
-        "┃ • profile\n"
-        "┃ • poll\n"
-        "┃ • updateinfo\n"
-        "┃ • versions\n"
-        "┃\n"
-        "┃ ── Economy ──\n"
-        "┃ • bal\n"
-        "┃ • daily\n"
-        "┃ • work\n"
-        "┃ • lb\n"
-        "┃ • rank\n"
-        "┃ • ranklb\n"
-        "┃ • withdraw\n"
-        "┃ • deposit\n"
-        "┃ • fish\n"
-        "┃ • beg\n"
-        "┃ • dig\n"
-        "┃ • rob\n"
-        "┃ • loan\n"
-        "┃ • payloan\n"
-        "┃\n"
-        "┃ ── Jobs & Salary ──\n"
-        "┃ • jobs\n"
-        "┃ • setjob\n"
-        "┃ • myjob\n"
-        "┃ • treasury\n"
-        "┃\n"
-        "┃ ── Pets ──\n"
-        "┃ • buypet\n"
-        "┃ • feedpet\n"
-        "┃ • collectpet\n"
-        "┃ • pet\n"
-        "┃\n"
-        "┃ ── Marriage ──\n"
-        "┃ • marry\n"
-        "┃ • marryaccept\n"
-        "┃ • divorce\n"
-        "┃ • partner\n"
-        "┃\n"
-        "┃ ── Achievements ──\n"
-        "┃ • achievements\n"
-        "┃\n"
-        "┃ ── Market ──\n"
-        "┃ • sell\n"
-        "┃ • market\n"
-        "┃ • buylisting\n"
-        "┃ • cancellisting\n"
-        "┃ • syncroles\n"
-        "┃\n"
-        "┃ ── Shop ──\n"
-        "┃ • shop\n"
-        "┃ • buy\n"
-        "┃ • use\n"
-        "┃ • inventory\n"
-        "┃\n"
-        "┃ ── Gambling ──\n"
-        "┃ • cf\n"
-        "┃ • roll\n"
-        "┃ • roulette\n"
-        "┃ • mines\n"
-        "┃ • blackjack\n"
-        "┃ • slot\n"
-        "┃\n"
-        "┃ ── Utility ──\n"
-        "┃ • afk\n"
-        "┃ • cds\n"
-        "┃ • donate\n"
-        "┃ • help\n"
-        "┃ • ncm\n"
-        "┃ • ptag\n"
-        "┃\n"
-        "┃ ── Admin ──\n"
-        "┃ • give\n"
-        "┃ • take\n"
-        "┃ • setlevelrole\n"
-        "┃ • levelroles\n"
-        "┃\n"
-        "┃ ── Owner ──\n"
-        "┃ • auth\n"
-        "┃ • storage\n"
-        "┃ • restart\n"
-        "┃ • stats\n"
-        "┃ • activity\n"
-        "┃ • clearcache\n"
-        "┃ • test\n"
-        "┃ • reset\n"
-        "┃\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+        "✦ ━━━━━  ＸＥＰＨＯＮ  ━━━━━ ✦\n"
+        "Type `.help <command>` for details\n"
+        "\n"
+        "◇ XephonGPT\n"
+        "· xephongpt on / off\n"
+        "· xephongpt wild / ai / normal\n"
+        "· xephongpt <message>\n"
+        "\n"
+        "◇ Fun\n"
+        "· ping · 8ball · joke\n"
+        "· translate · trt\n"
+        "\n"
+        "◇ Info\n"
+        "· avatar · userinfo · profile\n"
+        "· poll · updateinfo · versions\n"
+        "\n"
+        "◇ Economy\n"
+        "· bal · daily · work · lb\n"
+        "· rank · ranklb · withdraw · deposit\n"
+        "· fish · beg · dig · rob\n"
+        "· loan · payloan\n"
+        "\n"
+        "◇ Jobs\n"
+        "· jobs · setjob · myjob · treasury\n"
+        "\n"
+        "◇ Pets\n"
+        "· buypet · feedpet · collectpet · pet\n"
+        "\n"
+        "◇ Marriage\n"
+        "· marry · marryaccept · divorce · partner\n"
+        "\n"
+        "◇ Achievements\n"
+        "· achievements\n"
+        "\n"
+        "◇ Market\n"
+        "· sell · market · buylisting · cancellisting\n"
+        "\n"
+        "◇ Shop\n"
+        "· shop · buy · use · inventory\n"
+        "\n"
+        "◇ Gambling\n"
+        "· cf · roll · roulette\n"
+        "· mines · blackjack · slot\n"
+        "\n"
+        "◇ Utility\n"
+        "· afk · cds · donate · help · ncm\n"
+        "\n"
+        "◇ Admin\n"
+        "· give · take · setlevelrole · levelroles\n"
+        "\n"
+        "◇ Owner\n"
+        "· auth · storage · restart · stats\n"
+        "· activity · clearcache · reset · ptag\n"
+        "\n"
+        "◇ VIP / Tester\n"
+        "· test on / off\n"
+        "✦ ━━━━━━━━━━━━━━━━━━━━━ ✦"
     )
 
 
@@ -4437,8 +4397,8 @@ TEST_WALLET = 999_999_999_999_999
 def has_tester_role(member) -> bool:
     if not isinstance(member, discord.Member):
         return False
-    names = {role.name.lower() for role in member.roles}
-    return "vip" in names or "tester" in names
+    names = {role.name.lower().strip() for role in member.roles}
+    return bool(names & {"vip", "tester", "vip/tester", "tester/vip"})
 
 
 def snapshot_test_state(user_id):
@@ -4448,7 +4408,7 @@ def snapshot_test_state(user_id):
     global_items = cur.fetchall()
     cur.execute("SELECT item_id, quantity FROM inventory WHERE user_id = %s", (user_id,))
     custom_items = cur.fetchall()
-    cur.execute("SELECT pet_key, level, xp FROM pets WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT pet_type, pet_name, hunger FROM pets WHERE user_id = %s", (user_id,))
     pets = cur.fetchall()
     cur.close()
     release_db(conn)
@@ -4458,7 +4418,7 @@ def snapshot_test_state(user_id):
         "bank": bal["bank"],
         "global_items": [[k, q] for k, q in global_items],
         "custom_items": [[i, q] for i, q in custom_items],
-        "pets": [[k, lvl, xp] for k, lvl, xp in pets],
+        "pets": [[ptype, pname, hunger] for ptype, pname, hunger in pets],
         "lucky_stacks": effects["lucky_stacks"],
         "cd_boost_until": effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None,
     }
@@ -4480,10 +4440,10 @@ def restore_test_state(user_id, snap):
             (user_id, item_id, qty),
         )
     cur.execute("DELETE FROM pets WHERE user_id = %s", (user_id,))
-    for pet_key, level, xp in snap.get("pets", []):
+    for pet_type, pet_name, hunger in snap.get("pets", []):
         cur.execute(
-            "INSERT INTO pets (user_id, pet_key, level, xp) VALUES (%s, %s, %s, %s)",
-            (user_id, pet_key, level, xp),
+            "INSERT INTO pets (user_id, pet_type, pet_name, hunger) VALUES (%s, %s, %s, %s)",
+            (user_id, pet_type, pet_name, hunger),
         )
     conn.commit()
     cur.close()
@@ -4532,7 +4492,11 @@ async def test_cmd(interaction: discord.Interaction, state: app_commands.Choice[
     if not has_tester_role(interaction.user):
         await interaction.response.send_message("❌ You need the **vip** or **tester** role.", ephemeral=True)
         return
-    await interaction.response.send_message(do_test(did(interaction.user.id), state.value == "on"))
+    try:
+        await interaction.response.send_message(do_test(did(interaction.user.id), state.value == "on"))
+    except Exception as e:
+        print(f"test failed: {e}")
+        await interaction.response.send_message(f"❌ Test failed: {e}", ephemeral=True)
 
 
 @bot.command(name="test")
@@ -4544,7 +4508,11 @@ async def test_prefix(ctx: commands.Context, state: str):
     if state not in ("on", "off"):
         await ctx.reply("❌ Use `.test on` or `.test off`.", mention_author=False)
         return
-    await ctx.reply(do_test(did(ctx.author.id), state == "on"), mention_author=False)
+    try:
+        await ctx.reply(do_test(did(ctx.author.id), state == "on"), mention_author=False)
+    except Exception as e:
+        print(f"test failed: {e}")
+        await ctx.reply(f"❌ Test failed: {e}", mention_author=False)
 
 
 @bot.tree.command(name="reset", description="[Owner only] Reset a player's money and lucky stacks")
@@ -5418,7 +5386,40 @@ def normalize_amount_words(text: str) -> str:
     return re.sub(r"(\d+(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)\b", repl, text, flags=re.I)
 
 
+NCM_ALIASES = {
+    "balance": "bal", "money": "bal", "wallet": "bal",
+    "coinflip": "cf", "coin": "cf", "inv": "inventory",
+    "leaderboard": "lb", "top": "lb",
+}
+
+def match_command_in_sentence(text: str):
+    lowered = text.lower()
+    names = sorted(NCM_ALLOWED, key=len, reverse=True)
+    found = None
+    for name in names:
+        if re.search(rf"\b{re.escape(name)}\b", lowered):
+            found = name
+            break
+    if found is None:
+        for alias, name in sorted(NCM_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+            if re.search(rf"\b{re.escape(alias)}\b", lowered):
+                found = name
+                break
+    if found is None:
+        return None, ""
+    args = re.sub(rf"\b{re.escape(found)}\b", " ", text, count=1, flags=re.I)
+    for alias, name in NCM_ALIASES.items():
+        if name == found:
+            args = re.sub(rf"\b{re.escape(alias)}\b", " ", args, count=1, flags=re.I)
+    args = re.sub(r"\b(show|check|me|my|the|please|to)\b", " ", args, flags=re.I)
+    args = normalize_amount_words(args)
+    return found, " ".join(args.split())
+
+
 async def parse_ncm_request(text: str) -> tuple:
+    matched, args = match_command_in_sentence(text)
+    if matched:
+        return matched, args
     cleaned = normalize_amount_words(text)
     if not groq_client:
         return None, ""
