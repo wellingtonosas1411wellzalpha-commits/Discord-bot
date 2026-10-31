@@ -1502,77 +1502,58 @@ COMMAND_HELP = {
 
 def build_menu_text():
     return (
-        "✦  ━━━━━━   X E P H O N   ━━━━━━  ✦\n"
-        "\n"
-        "Use  `.help <command>`  for details\n"
-        "\n"
-        "◈   XEPHONGPT\n"
-        "\n"
-        "    xephongpt on / off\n"
-        "    xephongpt wild / ai / normal\n"
-        "    xephongpt <message>\n"
-        "\n"
-        "◈   FUN\n"
-        "\n"
-        "    ping    ·    8ball    ·    joke\n"
-        "    translate    ·    trt\n"
-        "\n"
-        "◈   INFO\n"
-        "\n"
-        "    avatar    ·    userinfo    ·    profile\n"
-        "    poll    ·    updateinfo    ·    versions\n"
-        "\n"
-        "◈   ECONOMY\n"
-        "\n"
-        "    bal    ·    daily    ·    work    ·    lb\n"
-        "    rank    ·    ranklb\n"
-        "    withdraw    ·    deposit\n"
-        "    fish    ·    beg    ·    dig    ·    rob\n"
-        "    loan    ·    payloan\n"
-        "\n"
-        "◈   JOBS\n"
-        "\n"
-        "    jobs    ·    setjob    ·    myjob    ·    treasury\n"
-        "\n"
-        "◈   PETS\n"
-        "\n"
-        "    buypet    ·    feedpet    ·    collectpet    ·    pet\n"
-        "\n"
-        "◈   MARRIAGE\n"
-        "\n"
-        "    marry    ·    marryaccept\n"
-        "    divorce    ·    partner\n"
-        "\n"
-        "◈   SHOP\n"
-        "\n"
-        "    shop    ·    buy    ·    use    ·    inventory\n"
-        "\n"
-        "◈   GAMBLING\n"
-        "\n"
-        "    cf    ·    roll    ·    roulette\n"
-        "    mines    ·    blackjack    ·    slot\n"
-        "\n"
-        "◈   UTILITY\n"
-        "\n"
-        "    afk    ·    cds    ·    donate\n"
-        "    help    ·    ncm\n"
-        "\n"
-        "◈   ADMIN\n"
-        "\n"
-        "    give    ·    take\n"
-        "    setlevelrole    ·    levelroles\n"
-        "\n"
-        "◈   OWNER\n"
-        "\n"
-        "    auth    ·    storage    ·    restart\n"
-        "    stats    ·    activity\n"
-        "    clearcache    ·    reset    ·    ptag\n"
-        "\n"
-        "◈   TESTER\n"
-        "\n"
-        "    test on    /    test off\n"
-        "\n"
-        "✦  ━━━━━━━━━━━━━━━━━━━━━━━━━  ✦"
+        '✦  ━━━━━   X E P H O N   ━━━━━  ✦\n'
+        '\n'
+        '`.help <command>` for details\n'
+        '\n'
+        '◈  XEPHONGPT\n'
+        '   xephongpt on / off\n'
+        '   xephongpt wild / ai / normal\n'
+        '\n'
+        '◈  FUN\n'
+        '   ping  ·  8ball  ·  joke\n'
+        '   translate  ·  trt\n'
+        '\n'
+        '◈  INFO\n'
+        '   avatar  ·  userinfo  ·  profile\n'
+        '   poll  ·  updateinfo  ·  versions\n'
+        '\n'
+        '◈  ECONOMY\n'
+        '   bal  ·  daily  ·  work  ·  lb\n'
+        '   rank  ·  ranklb  ·  withdraw  ·  deposit\n'
+        '   fish  ·  beg  ·  dig  ·  rob\n'
+        '   loan  ·  payloan\n'
+        '\n'
+        '◈  JOBS\n'
+        '   jobs  ·  setjob  ·  myjob  ·  treasury\n'
+        '\n'
+        '◈  PETS\n'
+        '   buypet  ·  feedpet  ·  collectpet  ·  pet\n'
+        '\n'
+        '◈  MARRIAGE\n'
+        '   marry  ·  marryaccept  ·  divorce  ·  partner\n'
+        '\n'
+        '◈  SHOP\n'
+        '   shop  ·  buy  ·  use  ·  inventory\n'
+        '\n'
+        '◈  GAMBLING\n'
+        '   cf  ·  roll  ·  roulette\n'
+        '   mines  ·  blackjack  ·  slot\n'
+        '\n'
+        '◈  UTILITY\n'
+        '   afk  ·  cds  ·  donate  ·  help  ·  ncm\n'
+        '\n'
+        '◈  ADMIN\n'
+        '   give  ·  take  ·  setlevelrole  ·  levelroles\n'
+        '\n'
+        '◈  OWNER\n'
+        '   auth  ·  storage  ·  restart  ·  stats\n'
+        '   activity  ·  clearcache  ·  reset  ·  ptag\n'
+        '\n'
+        '◈  TESTER\n'
+        '   test on  /  test off\n'
+        '\n'
+        '✦  ━━━━━━━━━━━━━━━━━━━━━━━  ✦\n'
     )
 
 
