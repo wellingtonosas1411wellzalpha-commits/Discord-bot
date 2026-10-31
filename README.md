@@ -3,7 +3,7 @@
 <h1 align="center"><b>🤖 XEPHON CORE</b></h1>
 
 <p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=⚡+Advanced+Discord+Economy+Bot;🧠+XephonGPT+%7C+Fast+%7C+Secure;🔥+Developed+By+kira" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=💯+ADVANCED+DISCORD+ECONOMY+BOT+💯;👑+XEPHON+👑+%7C+⚡+FAST+⚡+%7C+😎+COOL+😎;🧑‍💻+DEVELOPED+BY+KIRA+🥇" />
 </p>
 
 <p align="center">
