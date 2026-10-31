@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.1"
+BOT_VERSION = "1.18.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.2",
+        "date": "2026-10-31",
+        "changes": [
+            "Fixed .test crash when saving cooldown time",
+        ],
+    },
     {
         "version": "1.18.1",
         "date": "2026-10-31",
@@ -4420,7 +4427,9 @@ def snapshot_test_state(user_id):
         "custom_items": [[i, q] for i, q in custom_items],
         "pets": [[ptype, pname, hunger] for ptype, pname, hunger in pets],
         "lucky_stacks": effects["lucky_stacks"],
-        "cd_boost_until": effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None,
+        "cd_boost_until": effects["cd_boost_until"] if isinstance(effects["cd_boost_until"], (int, float)) else (
+            effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None
+        ),
     }
 
 
