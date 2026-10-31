@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.4"
+BOT_VERSION = "1.18.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.5",
+        "date": "2026-10-31",
+        "changes": [
+            ".reset keeps XP unless you use .reset all",
+        ],
+    },
     {
         "version": "1.18.4",
         "date": "2026-10-31",
@@ -1504,7 +1511,8 @@ COMMAND_HELP = {
     "setlevelrole": "[Admin] Set a role reward for reaching a level.\nUsage: `.setlevelrole <level> @role`",
     "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
     "test": "[VIP/tester] Turn test money on or off.\nUsage: `.test on` / `.test off`",
-    "reset": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
+    "reset": "[Owner] Reset a player to defaults. XP stays unless you use `.reset all`.\nUsage: `.reset` / `.reset @user` / `.reset all`",
+    "reset_unused": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
     "restart": "[Owner] Deploy the latest commit and restart Xephon.\nUsage: `.restart`",
 }
 
@@ -4410,7 +4418,7 @@ def do_recharge(user_id):
     )
 
 
-def do_reset(user_id):
+def do_reset(user_id, clear_xp: bool = False):
     update_balance(user_id, wallet=DEFAULT_WALLET, bank=DEFAULT_BANK)
     set_user_effects(user_id, lucky_stacks=0, cd_boost_until=None)
     conn, cur = get_db()
@@ -4420,7 +4428,8 @@ def do_reset(user_id):
     cur.execute("DELETE FROM jobs WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM marriages WHERE user_id = %s OR partner_id = %s", (user_id, user_id))
     cur.execute("DELETE FROM achievements WHERE user_id = %s", (user_id,))
-    cur.execute("DELETE FROM levels WHERE user_id = %s", (user_id,))
+    if clear_xp:
+        cur.execute("DELETE FROM levels WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM persistent_cooldowns WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM market_listings WHERE seller_id = %s", (user_id,))
@@ -4435,10 +4444,11 @@ def do_reset(user_id):
     set_meta(f"test_mode:{user_id}", "off")
     set_meta(f"test_snapshot:{user_id}", "")
     return (
-        "🔄 Reset complete. Everything is back to default.\n"
+        "🔄 Reset complete.\n"
         f"Wallet: **${DEFAULT_WALLET:,}**\n"
         f"Bank: **${DEFAULT_BANK:,}**\n"
-        "Items, pet, job, marriage, level, cooldowns, loans, and lucky stacks were cleared."
+        "Items, pet, job, marriage, cooldowns, loans, and lucky stacks were cleared.\n"
+        + ("XP and level were cleared." if clear_xp else "XP was kept. Use `.reset all` to clear XP too.")
     )
 
 
@@ -4568,21 +4578,32 @@ async def test_prefix(ctx: commands.Context, state: str):
         await ctx.reply(f"❌ Test failed: {e}", mention_author=False)
 
 
-@bot.tree.command(name="reset", description="[Owner only] Reset a player's money and lucky stacks")
-@app_commands.describe(user="Player to reset. Leave empty to reset yourself.")
-async def reset_cmd(interaction: discord.Interaction, user: discord.User = None):
+@bot.tree.command(name="reset", description="[Owner only] Reset a player. XP stays unless all is true")
+@app_commands.describe(user="Player to reset. Leave empty to reset yourself.", all="Also clear XP and level")
+async def reset_cmd(interaction: discord.Interaction, user: discord.User = None, all: bool = False):
     if not await interaction.client.is_owner(interaction.user):
         await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
         return
     target = user or interaction.user
-    await interaction.response.send_message(f"{target.mention}\n" + do_reset(did(target.id)))
+    await interaction.response.send_message(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=all))
 
 
 @bot.command(name="reset")
 @commands.is_owner()
-async def reset_prefix(ctx: commands.Context, user: discord.User = None):
-    target = user or ctx.author
-    await ctx.reply(f"{target.mention}\n" + do_reset(did(target.id)))
+async def reset_prefix(ctx: commands.Context, mode: str = None, user: discord.User = None):
+    clear_xp = False
+    target = ctx.author
+    if isinstance(mode, str) and mode.lower() == "all":
+        clear_xp = True
+        target = user or ctx.author
+    elif mode is not None:
+        # .reset @user
+        try:
+            target = await commands.UserConverter().convert(ctx, mode)
+        except Exception:
+            await ctx.reply("❌ Use `.reset`, `.reset @user`, or `.reset all`.", mention_author=False)
+            return
+    await ctx.reply(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=clear_xp), mention_author=False)
 
 
 @bot.tree.command(name="fish", description="Go fishing for coins")
