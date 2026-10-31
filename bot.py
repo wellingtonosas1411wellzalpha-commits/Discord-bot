@@ -29,10 +29,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.2"
+BOT_VERSION = "1.18.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.3",
+        "date": "2026-10-31",
+        "changes": [
+            "Test mode balance shows infinity total only",
+            ".test now requires the tester role only",
+            "Spaced out the command menu",
+        ],
+    },
     {
         "version": "1.18.2",
         "date": "2026-10-31",
@@ -1347,6 +1356,14 @@ def apply_tax(amount: int, rate: float = TAX_RATE):
 
 
 def build_balance_text(user_id: int):
+    if test_mode_on(user_id):
+        return (
+            "╭━━━〔 💳 ACCOUNT BALANCE 〕━━━⬣\n"
+            "┃\n"
+            "┃ 💠 TOTAL : [ ♾️ ]\n"
+            "┃\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+        )
     bal = get_balance(user_id)
     total = bal["wallet"] + bal["bank"]
     achievement_line = ""
@@ -1485,63 +1502,77 @@ COMMAND_HELP = {
 
 def build_menu_text():
     return (
-        "✦ ━━━━━  ＸＥＰＨＯＮ  ━━━━━ ✦\n"
-        "Type `.help <command>` for details\n"
+        "✦  ━━━━━━   X E P H O N   ━━━━━━  ✦\n"
         "\n"
-        "◇ XephonGPT\n"
-        "· xephongpt on / off\n"
-        "· xephongpt wild / ai / normal\n"
-        "· xephongpt <message>\n"
+        "Use  `.help <command>`  for details\n"
         "\n"
-        "◇ Fun\n"
-        "· ping · 8ball · joke\n"
-        "· translate · trt\n"
+        "◈   XEPHONGPT\n"
         "\n"
-        "◇ Info\n"
-        "· avatar · userinfo · profile\n"
-        "· poll · updateinfo · versions\n"
+        "    xephongpt on / off\n"
+        "    xephongpt wild / ai / normal\n"
+        "    xephongpt <message>\n"
         "\n"
-        "◇ Economy\n"
-        "· bal · daily · work · lb\n"
-        "· rank · ranklb · withdraw · deposit\n"
-        "· fish · beg · dig · rob\n"
-        "· loan · payloan\n"
+        "◈   FUN\n"
         "\n"
-        "◇ Jobs\n"
-        "· jobs · setjob · myjob · treasury\n"
+        "    ping    ·    8ball    ·    joke\n"
+        "    translate    ·    trt\n"
         "\n"
-        "◇ Pets\n"
-        "· buypet · feedpet · collectpet · pet\n"
+        "◈   INFO\n"
         "\n"
-        "◇ Marriage\n"
-        "· marry · marryaccept · divorce · partner\n"
+        "    avatar    ·    userinfo    ·    profile\n"
+        "    poll    ·    updateinfo    ·    versions\n"
         "\n"
-        "◇ Achievements\n"
-        "· achievements\n"
+        "◈   ECONOMY\n"
         "\n"
-        "◇ Market\n"
-        "· sell · market · buylisting · cancellisting\n"
+        "    bal    ·    daily    ·    work    ·    lb\n"
+        "    rank    ·    ranklb\n"
+        "    withdraw    ·    deposit\n"
+        "    fish    ·    beg    ·    dig    ·    rob\n"
+        "    loan    ·    payloan\n"
         "\n"
-        "◇ Shop\n"
-        "· shop · buy · use · inventory\n"
+        "◈   JOBS\n"
         "\n"
-        "◇ Gambling\n"
-        "· cf · roll · roulette\n"
-        "· mines · blackjack · slot\n"
+        "    jobs    ·    setjob    ·    myjob    ·    treasury\n"
         "\n"
-        "◇ Utility\n"
-        "· afk · cds · donate · help · ncm\n"
+        "◈   PETS\n"
         "\n"
-        "◇ Admin\n"
-        "· give · take · setlevelrole · levelroles\n"
+        "    buypet    ·    feedpet    ·    collectpet    ·    pet\n"
         "\n"
-        "◇ Owner\n"
-        "· auth · storage · restart · stats\n"
-        "· activity · clearcache · reset · ptag\n"
+        "◈   MARRIAGE\n"
         "\n"
-        "◇ VIP / Tester\n"
-        "· test on / off\n"
-        "✦ ━━━━━━━━━━━━━━━━━━━━━ ✦"
+        "    marry    ·    marryaccept\n"
+        "    divorce    ·    partner\n"
+        "\n"
+        "◈   SHOP\n"
+        "\n"
+        "    shop    ·    buy    ·    use    ·    inventory\n"
+        "\n"
+        "◈   GAMBLING\n"
+        "\n"
+        "    cf    ·    roll    ·    roulette\n"
+        "    mines    ·    blackjack    ·    slot\n"
+        "\n"
+        "◈   UTILITY\n"
+        "\n"
+        "    afk    ·    cds    ·    donate\n"
+        "    help    ·    ncm\n"
+        "\n"
+        "◈   ADMIN\n"
+        "\n"
+        "    give    ·    take\n"
+        "    setlevelrole    ·    levelroles\n"
+        "\n"
+        "◈   OWNER\n"
+        "\n"
+        "    auth    ·    storage    ·    restart\n"
+        "    stats    ·    activity\n"
+        "    clearcache    ·    reset    ·    ptag\n"
+        "\n"
+        "◈   TESTER\n"
+        "\n"
+        "    test on    /    test off\n"
+        "\n"
+        "✦  ━━━━━━━━━━━━━━━━━━━━━━━━━  ✦"
     )
 
 
@@ -4405,7 +4436,7 @@ def has_tester_role(member) -> bool:
     if not isinstance(member, discord.Member):
         return False
     names = {role.name.lower().strip() for role in member.roles}
-    return bool(names & {"vip", "tester", "vip/tester", "tester/vip"})
+    return "tester" in names
 
 
 def snapshot_test_state(user_id):
@@ -4499,7 +4530,7 @@ def do_test(user_id, turn_on: bool):
 ])
 async def test_cmd(interaction: discord.Interaction, state: app_commands.Choice[str]):
     if not has_tester_role(interaction.user):
-        await interaction.response.send_message("❌ You need the **vip** or **tester** role.", ephemeral=True)
+        await interaction.response.send_message("❌ You need the **tester** role.", ephemeral=True)
         return
     try:
         await interaction.response.send_message(do_test(did(interaction.user.id), state.value == "on"))
@@ -4511,7 +4542,7 @@ async def test_cmd(interaction: discord.Interaction, state: app_commands.Choice[
 @bot.command(name="test")
 async def test_prefix(ctx: commands.Context, state: str):
     if not has_tester_role(ctx.author):
-        await ctx.reply("❌ You need the **vip** or **tester** role.", mention_author=False)
+        await ctx.reply("❌ You need the **tester** role.", mention_author=False)
         return
     state = state.lower()
     if state not in ("on", "off"):
