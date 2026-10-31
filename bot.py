@@ -4422,7 +4422,7 @@ def do_reset(user_id):
     cur.execute("DELETE FROM achievements WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM levels WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM persistent_cooldowns WHERE user_id = %s", (user_id,))
-    cur.execute("DELETE FROM loans WHERE user_id = %s OR lender_id = %s", (user_id, user_id))
+    cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
     cur.execute("DELETE FROM market_listings WHERE seller_id = %s", (user_id,))
     cur.execute("DELETE FROM afk WHERE user_id = %s", (user_id,))
     cur.execute(
