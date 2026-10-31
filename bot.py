@@ -1512,7 +1512,6 @@ COMMAND_HELP = {
     "levelroles": "See all configured level role rewards.\nUsage: `.levelroles`",
     "test": "[VIP/tester] Turn test money on or off.\nUsage: `.test on` / `.test off`",
     "reset": "[Owner] Reset a player to defaults. XP stays unless you use `.reset all`.\nUsage: `.reset` / `.reset @user` / `.reset all`",
-    "reset_unused": "[Owner] Reset a player's wallet and bank to default and clear their lucky stacks.\nUsage: `.reset [user]`",
     "restart": "[Owner] Deploy the latest commit and restart Xephon.\nUsage: `.restart`",
 }
 
