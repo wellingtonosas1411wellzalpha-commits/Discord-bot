@@ -7,15 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Not.-111827?style=for-the-badge" />
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Xephongpt-fast%20%7C%20secure-7C4DFF?style=for-the-badge" />
-</p>
-
-<p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=28&duration=2600&pause=800&color=00E5FF&center=true&vCenter=true&width=900&lines=Xephongpt+%7C+fast+%7C+cool;Not.;Xephongpt+%7C+fast+%7C+secure" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=28&duration=2600&pause=800&color=00E5FF&center=true&vCenter=true&width=900&lines=Xephongpt+%7C+fast+%7C+cool" />
 </p>
 
 <p align="center">
