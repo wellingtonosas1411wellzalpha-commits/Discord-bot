@@ -29,10 +29,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.3"
+BOT_VERSION = "1.18.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.4",
+        "date": "2026-10-31",
+        "changes": [
+            ".reset now clears everything back to defaults",
+            "Test mode lifts item and reply limits",
+            "Menu credits: Developed by Kira",
+        ],
+    },
     {
         "version": "1.18.3",
         "date": "2026-10-31",
@@ -1504,6 +1513,7 @@ def build_menu_text():
     return (
         '✦  ━━━━━   X E P H O N   ━━━━━  ✦\n'
         '\n'
+        'Developed by Kira\n'
         '`.help <command>` for details\n'
         '\n'
         '◈  XEPHONGPT\n'
@@ -1553,7 +1563,7 @@ def build_menu_text():
         '◈  TESTER\n'
         '   test on  /  test off\n'
         '\n'
-        '✦  ━━━━━━━━━━━━━━━━━━━━━━━  ✦\n'
+        '✦  Developed by Kira  ✦\n'
     )
 
 
@@ -2802,11 +2812,12 @@ def luck_chance(base: float, user_id) -> float:
 def buy_global_item(user_id, item_key: str, amount: int = 1):
     item = GLOBAL_ITEMS[item_key]
     amount = max(1, int(amount))
-    if not item.get("consumable") and not item.get("stackable"):
+    testing = test_mode_on(user_id)
+    if not testing and not item.get("consumable") and not item.get("stackable"):
         if has_global_item(user_id, item_key):
             return False, f"❌ You already own a **{item['name']}** — no need to buy another."
         amount = 1
-    else:
+    elif not testing:
         owned = get_global_item_qty(user_id, item_key)
         if owned + amount > MAX_ITEM_STACK:
             return False, f"❌ You can only hold **{MAX_ITEM_STACK}** of **{item['name']}** (you have {owned})."
@@ -3807,7 +3818,7 @@ async def handle_kiragpt_message(user, prompt: str, send_func):
     is_creator = is_kira_creator(user)
 
     # Rate limit for non-admins
-    if not is_creator:
+    if not is_creator and not test_mode_on(user_id):
         if get_kiragpt_reply_count(user_id) >= MAX_REPLIES_FOR_NORMAL_USERS:
             await send_func(
                 f"🚫 You have reached the limit of **{MAX_REPLIES_FOR_NORMAL_USERS} replies** "
@@ -4401,12 +4412,33 @@ def do_recharge(user_id):
 
 def do_reset(user_id):
     update_balance(user_id, wallet=DEFAULT_WALLET, bank=DEFAULT_BANK)
-    set_user_effects(user_id, lucky_stacks=0)
+    set_user_effects(user_id, lucky_stacks=0, cd_boost_until=None)
+    conn, cur = get_db()
+    cur.execute("DELETE FROM inventory WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM global_inventory WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM pets WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM jobs WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM marriages WHERE user_id = %s OR partner_id = %s", (user_id, user_id))
+    cur.execute("DELETE FROM achievements WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM levels WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM persistent_cooldowns WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM loans WHERE user_id = %s OR lender_id = %s", (user_id, user_id))
+    cur.execute("DELETE FROM market_listings WHERE seller_id = %s", (user_id,))
+    cur.execute("DELETE FROM afk WHERE user_id = %s", (user_id,))
+    cur.execute(
+        "UPDATE user_effects SET kiragpt_reply_count = 0, lucky_stacks = 0, cd_boost_until = NULL WHERE user_id = %s",
+        (user_id,),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    set_meta(f"test_mode:{user_id}", "off")
+    set_meta(f"test_snapshot:{user_id}", "")
     return (
-        f"🔄 Reset complete.\n"
+        "🔄 Reset complete. Everything is back to default.\n"
         f"Wallet: **${DEFAULT_WALLET:,}**\n"
         f"Bank: **${DEFAULT_BANK:,}**\n"
-        f"Lucky stacks: **0**"
+        "Items, pet, job, marriage, level, cooldowns, loans, and lucky stacks were cleared."
     )
 
 
@@ -4487,7 +4519,7 @@ def do_test(user_id, turn_on: bool):
         update_balance(user_id, wallet=TEST_WALLET)
         return (
             "🧪 Test mode is **on**.\n"
-            "You now have infinite test money.\n"
+            "You now have infinite test money and no item limits.\n"
             "It cannot be donated. When you turn it off, extra money, bet winnings, "
             "and items bought with test money disappear."
         )
