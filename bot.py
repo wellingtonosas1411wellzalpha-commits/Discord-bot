@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import sys
 import urllib.request
@@ -29,10 +30,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.6"
+BOT_VERSION = "1.18.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.7",
+        "date": "2026-10-31",
+        "changes": [
+            "Fixed NCM crash: re was not imported",
+        ],
+    },
     {
         "version": "1.18.6",
         "date": "2026-10-31",
