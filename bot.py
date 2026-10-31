@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.18.5"
+BOT_VERSION = "1.18.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.18.6",
+        "date": "2026-10-31",
+        "changes": [
+            "NCM runs each line in a message and no longer fails silently",
+        ],
+    },
     {
         "version": "1.18.5",
         "date": "2026-10-31",
@@ -5530,9 +5537,17 @@ async def parse_ncm_request(text: str) -> tuple:
 
 
 async def run_ncm_command(message, command: str, args: str):
-    content = f".{command}" + (f" {args}" if args else "")
-    message.content = content
-    await bot.process_commands(message)
+    cmd = bot.get_command(command)
+    if cmd is None:
+        await message.reply(f"❌ Unknown command `{command}`.", mention_author=False)
+        return
+    ctx = await bot.get_context(message)
+    ctx.command = cmd
+    ctx.invoked_with = command
+    ctx.prefix = "."
+    ctx.view = commands.view.StringView(args or "")
+    ctx.view.skip_ws()
+    await bot.invoke(ctx)
 
 
 @bot.tree.command(name="ncm", description="Turn No Command Mode on or off")
@@ -5712,24 +5727,41 @@ async def on_message(message: discord.Message):
             else:
                 await message.reply("❌ Cancelled.", mention_author=False)
             return
-        if ncm_is_on(user_id) and message.content.strip() and len(message.content) <= 300:
-            async with message.channel.typing():
-                command, args = await parse_ncm_request(message.content)
-            if not command:
-                await message.reply(
-                    "❌ I couldn't match that to a command. Try again, or use `.menu`.",
-                    mention_author=False,
-                )
-                return
-            if command in NCM_CONFIRM:
-                ncm_pending[user_id] = {"command": command, "args": args}
-                shown = f".{command}" + (f" {args}" if args else "")
-                await message.reply(
-                    f"Run `{shown}`? Say **yes** to confirm or anything else to cancel.",
-                    mention_author=False,
-                )
-            else:
-                await run_ncm_command(message, command, args)
+        if ncm_is_on(user_id) and message.content.strip() and len(message.content) <= 500:
+            lines = [ln.strip() for ln in message.content.splitlines() if ln.strip()]
+            try:
+                if len(lines) > 1:
+                    ran = 0
+                    for line in lines[:6]:
+                        command, args = match_command_in_sentence(line)
+                        if not command:
+                            await message.reply(f"❌ No command in `{line}`.", mention_author=False)
+                            continue
+                        await run_ncm_command(message, command, args)
+                        ran += 1
+                    if ran == 0:
+                        await message.reply("❌ None of those lines matched a command.", mention_author=False)
+                    return
+                async with message.channel.typing():
+                    command, args = await parse_ncm_request(message.content)
+                if not command:
+                    await message.reply(
+                        "❌ I couldn't match that to a command. Try again, or use `.menu`.",
+                        mention_author=False,
+                    )
+                    return
+                if command in NCM_CONFIRM:
+                    ncm_pending[user_id] = {"command": command, "args": args}
+                    shown = f".{command}" + (f" {args}" if args else "")
+                    await message.reply(
+                        f"Run `{shown}`? Say **yes** to confirm or anything else to cancel.",
+                        mention_author=False,
+                    )
+                else:
+                    await run_ncm_command(message, command, args)
+            except Exception as e:
+                print(f"NCM failed: {e}")
+                await message.reply(f"❌ NCM failed: {e}", mention_author=False)
             return
 
     await bot.process_commands(message)
