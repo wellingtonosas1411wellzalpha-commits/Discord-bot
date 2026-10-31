@@ -3,7 +3,11 @@
 <h1 align="center"><b>🤖 XEPHON CORE</b></h1>
 
 <p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=Xephongpt+%7C+fast+%7C+cool" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=Xephongpt+%7C+fast+%7C+cool;developed+by+Kira" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/developed%20by-Kira%20%F0%9F%A7%91%E2%80%8D%F0%9F%92%BB-FFD700?style=for-the-badge" />
 </p>
 
 <p align="center">
