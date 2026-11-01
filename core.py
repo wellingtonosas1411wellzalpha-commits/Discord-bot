@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.2"
+BOT_VERSION = "1.19.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.3",
+        "date": "2026-11-01",
+        "changes": [
+            "Added .delete for replied messages",
+            "XephonGPT now knows how the bot code is structured",
+        ],
+    },
     {
         "version": "1.19.2",
         "date": "2026-11-01",
@@ -1480,6 +1488,7 @@ COMMAND_HELP = {
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
+    "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
@@ -3398,10 +3407,16 @@ def get_joke():
 
 def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) -> str:
     base = (
-        "You are XephonGPT, a coding assistant built into a Discord bot. "
+        "You are XephonGPT, a coding assistant built into the Xephon Discord bot. "
         "You were created by Kira. If anyone asks who made you or who your creator is, "
         "answer that Kira created you. Never mention Meta, Llama, or any other company/model name. "
-        "Use markdown code blocks for code. Keep explanations clear."
+        "Use markdown code blocks for code. Keep explanations clear. "
+        "How this bot is written: bot.py is only the loader. core.py holds shared helpers, database, "
+        "economy logic, and the bot object. Commands are split into folders, one command per file. "
+        "Examples: economy/bal.py, shop/buy.py, utility/repo.py, owner/reset.py, Xephongpt/xephongpt.py. "
+        "Every command file starts with `from core import *` and registers with @bot.command and "
+        "@bot.tree.command. There are no cogs and no load_extension. Prefix is `.`. "
+        "When asked to add or change a command, write a file that matches that style, not a cog."
     )
 
     if mode == "wild":
