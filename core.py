@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.1"
+BOT_VERSION = "1.19.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.2",
+        "date": "2026-11-01",
+        "changes": [
+            "Fixed split crash: shop choices and shared helpers were in the wrong files",
+        ],
+    },
     {
         "version": "1.19.1",
         "date": "2026-11-01",
@@ -3740,3 +3747,648 @@ def start():
                 os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
         else:
             raise RuntimeError("Discord kept rate-limiting this host. Wait and deploy once.")
+
+
+# moved from economy/rob.py
+SHOP_ITEM_CHOICES = [
+    app_commands.Choice(name="Vx — 100,000 coins", value="vx"),
+    app_commands.Choice(name="V9 — 200,000 coins", value="v9"),
+    app_commands.Choice(name="Lucky Potion — 500,000 coins", value="lucky"),
+    app_commands.Choice(name="Gun — 1,000 coins", value="gun"),
+    app_commands.Choice(name="Fishing Rod — 1,000 coins", value="fishing_rod"),
+    app_commands.Choice(name="Shovel — 1,000 coins", value="shovel"),
+    app_commands.Choice(name="Guard — 50,000 coins", value="guard"),
+]
+
+async def apply_shop_purchase(send_func, user, guild, item_name: str, amount: int = 1):
+    success, message, role_id = handle_buy(did(user.id), guild.id, item_name, amount)
+    if success and role_id is not None and isinstance(user, discord.Member):
+        role = guild.get_role(role_id)
+        if role is not None:
+            try:
+                await user.add_roles(role, reason="Shop purchase")
+                message += f"\n🏅 The **{role.name}** role has been added to you."
+            except discord.Forbidden:
+                message += "\n⚠️ Couldn't assign the role — check my role permissions."
+    await send_func(message)
+
+
+
+# moved from shop/shop.py
+def handle_buy(user_id: int, guild_id: int, item_name: str, amount: int = 1):
+    key = resolve_item_key(item_name)
+    if key:
+        return buy_global_item(user_id, key, amount) + (None,)
+    try:
+        item_id = int(item_name)
+    except ValueError:
+        return False, "❌ Unknown item. Use `.shop` to see names and IDs.", None
+    return buy_shop_item(user_id, guild_id, item_id, amount)
+
+def parse_buy_args(raw: str):
+    """Split '.buy vx 3' into (item_name, amount)."""
+    parts = raw.strip().split()
+    if not parts:
+        return "", 1
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return " ".join(parts[:-1]), max(1, int(parts[-1]))
+    return raw.strip(), 1
+
+
+
+# moved from economy/donate.py
+async def send_member_tags(channel, text: str):
+    guild = channel.guild
+    if not guild.chunked:
+        await guild.chunk()
+    members = [m for m in guild.members if not m.bot]
+    if not members:
+        await channel.send(text)
+        return 0
+    mentions = [m.mention for m in members]
+    chunks = []
+    current = text.strip()
+    for mention in mentions:
+        piece = f"{current} {mention}".strip()
+        if len(piece) > 1900:
+            chunks.append(current)
+            current = mention
+        else:
+            current = piece
+    if current:
+        chunks.append(current)
+    allow = discord.AllowedMentions(everyone=False, users=True, roles=False)
+    for chunk in chunks:
+        await channel.send(chunk, allowed_mentions=allow)
+    return len(members)
+
+NCM_ALLOWED = {
+    "ping", "8ball", "avatar", "userinfo", "profile", "joke", "translate", "trt",
+    "afk", "bal", "withdraw", "deposit", "cf", "roulette", "fish", "beg", "dig",
+    "loan", "payloan", "daily", "work", "myjob", "jobs", "buypet", "feedpet",
+    "collectpet", "pet", "marry", "marryaccept", "divorce", "partner",
+    "achievements", "sell", "market", "lb", "rank", "ranklb", "mines",
+    "blackjack", "rob", "shop", "buy", "use", "help", "inventory", "slot",
+    "roll", "cds", "donate",
+}
+NCM_CONFIRM = {
+    "donate", "withdraw", "deposit", "buy", "rob", "loan", "payloan", "sell",
+    "use", "cf", "roulette", "mines", "blackjack", "slot", "roll", "marry",
+    "divorce", "buypet", "feedpet",
+}
+ncm_enabled = {}
+ncm_pending = {}
+
+def ncm_is_on(user_id: str) -> bool:
+    if user_id in ncm_enabled:
+        return ncm_enabled[user_id]
+    return get_meta(f"ncm:{user_id}") == "on"
+
+def set_ncm(user_id: str, enabled: bool):
+    ncm_enabled[user_id] = enabled
+    set_meta(f"ncm:{user_id}", "on" if enabled else "off")
+
+def normalize_amount_words(text: str) -> str:
+    import re
+    def repl(match):
+        raw = match.group(1).replace(",", "")
+        word = match.group(2).lower()
+        value = float(raw)
+        mult = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000,
+                "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000,
+                "trillion": 1_000_000_000_000}.get(word, 1)
+        return str(int(value * mult))
+    return re.sub(r"(\d+(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)\b", repl, text, flags=re.I)
+
+NCM_ALIASES = {
+    "balance": "bal", "money": "bal", "wallet": "bal",
+    "coinflip": "cf", "coin": "cf", "inv": "inventory",
+    "leaderboard": "lb", "top": "lb",
+}
+
+def match_command_in_sentence(text: str):
+    lowered = text.lower()
+    names = sorted(NCM_ALLOWED, key=len, reverse=True)
+    found = None
+    for name in names:
+        if re.search(rf"\b{re.escape(name)}\b", lowered):
+            found = name
+            break
+    if found is None:
+        for alias, name in sorted(NCM_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+            if re.search(rf"\b{re.escape(alias)}\b", lowered):
+                found = name
+                break
+    if found is None:
+        return None, ""
+    args = re.sub(rf"\b{re.escape(found)}\b", " ", text, count=1, flags=re.I)
+    for alias, name in NCM_ALIASES.items():
+        if name == found:
+            args = re.sub(rf"\b{re.escape(alias)}\b", " ", args, count=1, flags=re.I)
+    args = re.sub(r"\b(show|check|me|my|the|please|to)\b", " ", args, flags=re.I)
+    args = normalize_amount_words(args)
+    return found, " ".join(args.split())
+
+async def parse_ncm_request(text: str) -> tuple:
+    matched, args = match_command_in_sentence(text)
+    if matched:
+        return matched, args
+    cleaned = normalize_amount_words(text)
+    if not groq_client:
+        return None, ""
+    allowed = ", ".join(sorted(NCM_ALLOWED))
+    system = (
+        "Convert one Discord sentence into one existing bot command. "
+        "Return only JSON like {\"command\":\"donate\",\"args\":\"7000000 <@123>\"}. "
+        "If it is not a command request, return {\"command\":null}. "
+        f"Allowed commands: {allowed}. "
+        "args is only the arguments, never the command name or a dot. "
+        "Keep Discord mentions exactly as written. "
+        "7 million means 7000000. Do not invent commands."
+    )
+    try:
+        response = await asyncio.to_thread(
+            groq_client.chat.completions.create,
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": cleaned},
+            ],
+            temperature=0,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        data = json.loads(raw)
+        command = data.get("command")
+        args = str(data.get("args") or "").strip()
+        if command not in NCM_ALLOWED:
+            return None, ""
+        return command, args
+    except Exception as e:
+        print(f"NCM parse failed: {e}")
+        return None, ""
+
+async def run_ncm_command(message, command: str, args: str):
+    cmd = bot.get_command(command)
+    if cmd is None:
+        await message.reply(f"❌ Unknown command `{command}`.", mention_author=False)
+        return
+    ctx = await bot.get_context(message)
+    ctx.command = cmd
+    ctx.invoked_with = command
+    ctx.prefix = "."
+    ctx.view = commands.view.StringView(args or "")
+    ctx.view.skip_ws()
+    await bot.invoke(ctx)
+
+
+
+# moved from fun/joke.py
+def is_kira_creator(user) -> bool:
+    """True only if the person is a server Administrator."""
+    return isinstance(user, discord.Member) and user.guild_permissions.administrator
+
+def get_kiragpt_session(user_id: str):
+    if user_id not in kiragpt_sessions:
+        kiragpt_sessions[user_id] = {
+            "active": False,
+            "history": [],
+            "mode": "normal",          # normal / wild / ai
+        }
+    return kiragpt_sessions[user_id]
+
+MAX_REPLIES_FOR_NORMAL_USERS = 50
+
+async def handle_kiragpt_message(user, prompt: str, send_func):
+    user_id = did(user.id)
+    session = get_kiragpt_session(user_id)
+    is_creator = is_kira_creator(user)
+
+    # Rate limit for non-admins
+    if not is_creator and not test_mode_on(user_id):
+        if get_kiragpt_reply_count(user_id) >= MAX_REPLIES_FOR_NORMAL_USERS:
+            await send_func(
+                f"🚫 You have reached the limit of **{MAX_REPLIES_FOR_NORMAL_USERS} replies** "
+                f"for regular users.\nAn administrator can lift this limit."
+            )
+            return
+
+    # Handle mode switching
+    lower = prompt.strip().lower()
+    if lower in ("wild on", "wild mode on"):
+        session["mode"] = "wild"
+        await send_func("🔥 **Wild mode** activated. I'm feeling cocky now.")
+        return
+    if lower in ("ai on", "ai mode on"):
+        session["mode"] = "ai"
+        await send_func("🤖 **AI mode** activated. Strict coding mode only.")
+        return
+    if lower in ("normal on", "nice on", "normal mode on", "nice mode on"):
+        session["mode"] = "normal"
+        await send_func("😊 **Normal mode** activated. I'll be nice and helpful.")
+        return
+
+    if not prompt.strip():
+        await send_func(
+            "❌ Usage:\n"
+            "`.xephongpt <message>`\n"
+            "`.xephongpt on/off` — continuous chat\n"
+            "`.xephongpt wild on` / `ai on` / `normal on` — change mode"
+        )
+        return
+
+    mode = session.get("mode", "normal")
+
+    reply_text = await generate_code_response(
+        prompt, mode=mode, is_creator=is_creator, history=session["history"]
+    )
+
+    session["history"].append({"role": "user", "content": prompt[:1500]})
+    session["history"].append({"role": "assistant", "content": reply_text})
+    if len(session["history"]) > 20:
+        session["history"] = session["history"][-20:]
+
+    if not is_creator:
+        increment_kiragpt_reply_count(user_id)
+
+    if len(reply_text) <= 1900:
+        await send_func(reply_text)
+    else:
+        import io
+        file_bytes = io.BytesIO(reply_text.encode("utf-8"))
+        discord_file = discord.File(file_bytes, filename="xephongpt_response.txt")
+        await send_func("📄 Response was long — sending as a file:", file=discord_file)
+
+
+
+# moved from owner/clearcache.py
+def do_reset(user_id, clear_xp: bool = False):
+    update_balance(user_id, wallet=DEFAULT_WALLET, bank=DEFAULT_BANK)
+    set_user_effects(user_id, lucky_stacks=0, cd_boost_until=None)
+    conn, cur = get_db()
+    cur.execute("DELETE FROM inventory WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM global_inventory WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM pets WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM jobs WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM marriages WHERE user_id = %s OR partner_id = %s", (user_id, user_id))
+    cur.execute("DELETE FROM achievements WHERE user_id = %s", (user_id,))
+    if clear_xp:
+        cur.execute("DELETE FROM levels WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM persistent_cooldowns WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
+    cur.execute("DELETE FROM market_listings WHERE seller_id = %s", (user_id,))
+    cur.execute("DELETE FROM afk WHERE user_id = %s", (user_id,))
+    cur.execute(
+        "UPDATE user_effects SET kiragpt_reply_count = 0, lucky_stacks = 0, cd_boost_until = NULL WHERE user_id = %s",
+        (user_id,),
+    )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    set_meta(f"test_mode:{user_id}", "off")
+    set_meta(f"test_snapshot:{user_id}", "")
+    return (
+        "🔄 Reset complete.\n"
+        f"Wallet: **${DEFAULT_WALLET:,}**\n"
+        f"Bank: **${DEFAULT_BANK:,}**\n"
+        "Items, pet, job, marriage, cooldowns, loans, and lucky stacks were cleared.\n"
+        + ("XP and level were cleared." if clear_xp else "XP was kept. Use `.reset all` to clear XP too.")
+    )
+
+TEST_WALLET = 999_999_999_999_999
+
+def has_tester_role(member) -> bool:
+    if not isinstance(member, discord.Member):
+        return False
+    names = {role.name.lower().strip() for role in member.roles}
+    return "tester" in names
+
+def snapshot_test_state(user_id):
+    bal = get_balance(user_id)
+    conn, cur = get_db()
+    cur.execute("SELECT item_key, quantity FROM global_inventory WHERE user_id = %s", (user_id,))
+    global_items = cur.fetchall()
+    cur.execute("SELECT item_id, quantity FROM inventory WHERE user_id = %s", (user_id,))
+    custom_items = cur.fetchall()
+    cur.execute("SELECT pet_type, pet_name, hunger FROM pets WHERE user_id = %s", (user_id,))
+    pets = cur.fetchall()
+    cur.close()
+    release_db(conn)
+    effects = get_user_effects(user_id)
+    return {
+        "wallet": bal["wallet"],
+        "bank": bal["bank"],
+        "global_items": [[k, q] for k, q in global_items],
+        "custom_items": [[i, q] for i, q in custom_items],
+        "pets": [[ptype, pname, hunger] for ptype, pname, hunger in pets],
+        "lucky_stacks": effects["lucky_stacks"],
+        "cd_boost_until": effects["cd_boost_until"] if isinstance(effects["cd_boost_until"], (int, float)) else (
+            effects["cd_boost_until"].isoformat() if effects["cd_boost_until"] else None
+        ),
+    }
+
+def restore_test_state(user_id, snap):
+    update_balance(user_id, wallet=snap["wallet"], bank=snap["bank"])
+    conn, cur = get_db()
+    cur.execute("DELETE FROM global_inventory WHERE user_id = %s", (user_id,))
+    for key, qty in snap.get("global_items", []):
+        cur.execute(
+            "INSERT INTO global_inventory (user_id, item_key, quantity) VALUES (%s, %s, %s)",
+            (user_id, key, qty),
+        )
+    cur.execute("DELETE FROM inventory WHERE user_id = %s", (user_id,))
+    for item_id, qty in snap.get("custom_items", []):
+        cur.execute(
+            "INSERT INTO inventory (user_id, item_id, quantity) VALUES (%s, %s, %s)",
+            (user_id, item_id, qty),
+        )
+    cur.execute("DELETE FROM pets WHERE user_id = %s", (user_id,))
+    for pet_type, pet_name, hunger in snap.get("pets", []):
+        cur.execute(
+            "INSERT INTO pets (user_id, pet_type, pet_name, hunger) VALUES (%s, %s, %s, %s)",
+            (user_id, pet_type, pet_name, hunger),
+        )
+    conn.commit()
+    cur.close()
+    release_db(conn)
+    until = snap.get("cd_boost_until")
+    set_user_effects(
+        user_id,
+        lucky_stacks=snap.get("lucky_stacks", 0),
+        cd_boost_until=until,
+    )
+
+def do_test(user_id, turn_on: bool):
+    if turn_on:
+        if test_mode_on(user_id):
+            return "⚠️ Test mode is already **on**."
+        snap = snapshot_test_state(user_id)
+        set_meta(f"test_snapshot:{user_id}", json.dumps(snap))
+        set_meta(f"test_mode:{user_id}", "on")
+        update_balance(user_id, wallet=TEST_WALLET)
+        return (
+            "🧪 Test mode is **on**.\n"
+            "You now have infinite test money and no item limits.\n"
+            "It cannot be donated. When you turn it off, extra money, bet winnings, "
+            "and items bought with test money disappear."
+        )
+    if not test_mode_on(user_id):
+        return "❌ Test mode is already **off**."
+    raw = get_meta(f"test_snapshot:{user_id}")
+    if not raw:
+        set_meta(f"test_mode:{user_id}", "off")
+        return "❌ Test snapshot was missing. Test mode is now off."
+    restore_test_state(user_id, json.loads(raw))
+    set_meta(f"test_mode:{user_id}", "off")
+    set_meta(f"test_snapshot:{user_id}", "")
+    return "🧪 Test mode is **off**. Extra money and items bought with test money were removed."
+
+
+
+# moved from utility/menu.py
+def build_updateinfo_text() -> str:
+    info = LATEST_UPDATE_INFO
+    lines = [
+        "╭━━━〔 🆕 Latest Update 〕━━━⬣",
+        "┃",
+        f"┃ Version: **{info['version']}**",
+        f"┃ Date: {info['date']}",
+        "┃",
+        "┃ What's new:",
+    ]
+    for change in info["changes"]:
+        lines.append(f"┃ • {change}")
+    lines.append("┃")
+    lines.append("┃ Full log: `.versions`")
+    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    return "\n".join(lines)
+
+def build_version_history_text() -> str:
+    """Discord caps a single message at 2000 characters. As VERSION_HISTORY
+    grows, showing every entry eventually exceeds that and the send fails
+    outright (looks like 'the application did not respond'). So this shows
+    as many of the most recent entries as fit, oldest-first is not
+    preserved — newest first, truncate once we're near the limit."""
+    CHAR_BUDGET = 1900  # leave headroom under Discord's 2000 cap
+    header = [
+        "╭━━━〔 📜 Version History 〕━━━⬣",
+        f"┃ Current: **{BOT_VERSION}**",
+        "┃",
+    ]
+    footer_template = "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    used = sum(len(l) + 1 for l in header) + len(footer_template) + 1
+
+    body_lines = []
+    shown = 0
+    for entry in VERSION_HISTORY:
+        entry_lines = [f"┃ **v{entry['version']}** — {entry['date']}"]
+        for change in entry["changes"]:
+            entry_lines.append(f"┃  • {change}")
+        entry_lines.append("┃")
+        entry_len = sum(len(l) + 1 for l in entry_lines)
+        if used + entry_len > CHAR_BUDGET:
+            break
+        body_lines.extend(entry_lines)
+        used += entry_len
+        shown += 1
+
+    omitted = len(VERSION_HISTORY) - shown
+    lines = header + body_lines
+    if omitted > 0:
+        lines.append(f"┃ …and {omitted} older update(s) not shown here.")
+        lines.append("┃")
+    lines.append(footer_template)
+    return "\n".join(lines)
+
+
+
+# moved from gambling/cf.py
+def build_roulette_spinning_text(bet_display: str, color_choice: str):
+    return (
+        "🎡 *ROULETTE WHEEL* 🎡\n"
+        "━━━━━━━━━━━━━━\n"
+        f"Bet: *{bet_display}* on *{color_choice.upper()}*\n\n"
+        "🔄 Spinning the wheel..."
+    )
+
+def build_roulette_result_text(number, color_display, won, payout, wallet):
+    header = (
+        "🎡 *ROULETTE WHEEL* 🎡\n"
+        "━━━━━━━━━━━━━━\n"
+        f"The ball landed on: *{number} {color_display}*\n"
+        "━━━━━━━━━━━━━━\n"
+    )
+    if won:
+        return header + (
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: *${payout:,}*\n\n"
+            f"💵 Wallet: ${wallet:,}"
+        )
+    else:
+        return header + (
+            "💥 *YOU LOST!* 💥\n"
+            "Better luck next time.\n\n"
+            f"💵 Wallet: ${wallet:,}"
+        )
+
+ROULETTE_MULTIPLIER = {"red": 3, "black": 3, "green": 14}
+
+async def run_roulette(user_id: int, color_choice: str, amount_str: str, send_func, edit_func):
+    color_choice = color_choice.lower()
+    if color_choice not in ("red", "black", "green"):
+        return await send_func("❌ Choose `red`, `black`, or `green`.")
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return await send_func("❌ Invalid amount.")
+    if amount <= 0:
+        return await send_func("❌ Enter an amount greater than $0.")
+    if amount > bal["wallet"]:
+        return await send_func("❌ You don't have that much in your wallet.")
+
+    remaining = check_cooldown(roulette_cooldowns, user_id, ROULETTE_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return await send_func(f"⏳ Slow down! Try again in {int(remaining) + 1}s.")
+
+    adjust_balance(user_id, wallet_delta=-amount)
+    sent = await send_func(build_roulette_spinning_text(f"${amount:,}", color_choice))
+
+    await asyncio.sleep(5)
+
+    base = (1 / 37) if color_choice == "green" else (18 / 37)
+    won = random.random() < luck_chance(base, user_id)
+    number, color, color_display = do_roulette_spin()
+    if won and color != color_choice:
+        for _ in range(50):
+            number, color, color_display = do_roulette_spin()
+            if color == color_choice:
+                break
+    if not won and color == color_choice:
+        for _ in range(50):
+            number, color, color_display = do_roulette_spin()
+            if color != color_choice:
+                break
+    if won:
+        payout = amount * ROULETTE_MULTIPLIER[color_choice]
+        new_bal = get_balance(user_id)
+        adjust_balance(user_id, wallet_delta=payout)
+    else:
+        payout = 0
+        house_take(amount)
+    final_bal = get_balance(user_id)
+
+    result_text = build_roulette_result_text(number, color_display, won, payout, final_bal["wallet"])
+    await edit_func(sent, result_text)
+
+
+
+# moved from info/versions.py
+async def run_coinflip(user_id: int, side: str, amount_str: str):
+    side = side.lower()
+    if side not in ("heads", "tails"):
+        return "❌ Choose `heads` or `tails`."
+    bal = get_balance(user_id)
+    try:
+        amount = parse_amount(amount_str, all_value=bal["wallet"])
+    except ValueError:
+        return "❌ Invalid amount."
+    if amount <= 0:
+        return "❌ Enter an amount greater than $0."
+    if amount > bal["wallet"]:
+        return "❌ You don't have that much in your wallet."
+
+    remaining = check_cooldown(cf_cooldowns, user_id, CF_COOLDOWN_SECONDS)
+    if remaining is not None:
+        return f"⏳ Slow down! Try again in {int(remaining) + 1}s."
+
+    adjust_balance(user_id, wallet_delta=-amount)
+    won = random.random() < luck_chance(0.5, user_id)
+    result = side if won else ("tails" if side == "heads" else "heads")
+    result_display = "HEADS 🦅" if result == "heads" else "TAILS 🪙"
+
+    if won:
+        payout = amount * 2
+        new_bal = get_balance(user_id)
+        adjust_balance(user_id, wallet_delta=payout)
+        final_bal = get_balance(user_id)
+        return (
+            "🪙 *COINFLIP* 🪙\n"
+            "━━━━━━━━━━━━━━\n"
+            f"The coin landed on: *{result_display}*\n"
+            "━━━━━━━━━━━━━━\n"
+            "🎉 *YOU WON!* 🎉\n"
+            f"Payout: *${payout:,}*\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+    else:
+        house_take(amount)
+        final_bal = get_balance(user_id)
+        return (
+            "🪙 *COINFLIP* 🪙\n"
+            "━━━━━━━━━━━━━━\n"
+            f"The coin landed on: *{result_display}*\n"
+            "━━━━━━━━━━━━━━\n"
+            "💥 *YOU LOST!* 💥\n"
+            "Better luck next time.\n\n"
+            f"💵 Wallet: ${final_bal['wallet']:,}"
+        )
+
+
+
+# moved from economy/lb.py
+def build_rank_text(user_id: int, display_name: str) -> str:
+    data = get_level_data(user_id)
+    needed = xp_for_level(data["level"])
+    return (
+        f"📊 **{display_name}**'s Rank\n"
+        f"Level: **{data['level']}**\n"
+        f"XP: **{data['xp']:,} / {needed:,}**"
+    )
+
+def build_ranklb_text() -> str:
+    rows = get_xp_leaderboard()
+    if not rows:
+        return "No one has earned XP yet."
+    lines = ["🎖️ **Level Leaderboard** 🎖️\n"]
+    for i, (user_id, level, xp) in enumerate(rows, start=1):
+        lines.append(f"**{i}.** <@{user_id}> — Level {level} ({xp:,} XP)")
+    return "\n".join(lines)
+
+
+
+# moved from levels/levelroles.py
+async def _sync_roles_for(member: discord.Member):
+    """Re-applies any level role rewards the member has earned but doesn't
+    have — for cases where auto-assignment failed (e.g. a permissions fix
+    happened after the level-up already occurred)."""
+    data = get_level_data(did(member.id))
+    current_level = data["level"]
+    rows = list_level_roles(member.guild.id)
+    given, blocked, gone = [], [], []
+    for level, role_id in rows:
+        if level > current_level:
+            continue
+        role = member.guild.get_role(int(role_id))
+        if role is None:
+            gone.append(str(level))
+            continue
+        if role in member.roles:
+            continue
+        try:
+            await member.add_roles(role, reason="Level role sync")
+            given.append(role.name)
+        except discord.Forbidden:
+            blocked.append(role.name)
+    if not given and not blocked and not gone:
+        return "✅ You already have every role reward you've earned."
+    parts = []
+    if given:
+        parts.append(f"🏅 Given: {', '.join(given)}")
+    if blocked:
+        parts.append(f"⚠️ Couldn't give (check the bot's Manage Roles permission and role position): {', '.join(blocked)}")
+    if gone:
+        parts.append(f"⚠️ Configured role(s) for level(s) {', '.join(gone)} no longer exist on this server.")
+    return "\n".join(parts)
+
+
