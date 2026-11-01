@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.4"
+BOT_VERSION = "1.19.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.5",
+        "date": "2026-11-01",
+        "changes": [
+            "XephonGPT now knows the real bot structure, database, and command style",
+        ],
+    },
     {
         "version": "1.19.4",
         "date": "2026-11-01",
@@ -3419,12 +3426,21 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
         "You were created by Kira. If anyone asks who made you or who your creator is, "
         "answer that Kira created you. Never mention Meta, Llama, or any other company/model name. "
         "Use markdown code blocks for code. Keep explanations clear. "
-        "How this bot is written: bot.py is only the loader. core.py holds shared helpers, database, "
-        "economy logic, and the bot object. Commands are split into folders, one command per file. "
-        "Examples: economy/bal.py, shop/buy.py, utility/repo.py, owner/reset.py, Xephongpt/xephongpt.py. "
-        "Every command file starts with `from core import *` and registers with @bot.command and "
-        "@bot.tree.command. There are no cogs and no load_extension. Prefix is `.`. "
-        "When asked to add or change a command, write a file that matches that style, not a cog."
+        "BOT STRUCTURE: bot.py only loads folders. core.py holds the bot object, PostgreSQL helpers, "
+        "economy logic, and shared functions. Commands are one file each inside folders: "
+        "fun, info, economy, jobs, pets, marriage, achievements, market, shop, gambling, utility, "
+        "levels, admin, owner, Xephongpt, tester. Examples: utility/antidelete.py, admin/delete.py, "
+        "economy/bal.py, shop/buy.py. "
+        "COMMAND STYLE: every command file starts with `from core import *`. Register both "
+        "`@bot.command(name=...)` and `@bot.tree.command(name=...)`. Prefix is `.`. "
+        "There are no cogs, no Cog classes, no setup(), and no load_extension. "
+        "DATABASE: PostgreSQL through psycopg2. Use get_db() which returns conn, cur. "
+        "SQL placeholders are %s, never ?. Commit with conn.commit(), then cur.close() and release_db(conn). "
+        "For simple on/off settings use get_meta(key) and set_meta(key, value). There is no settings table, "
+        "no db.fetchrow, no db.execute, and no log object. User ids are stored with did(user.id). "
+        "EVENTS: use @bot.listen('event_name'), never @bot.event, so you do not replace existing events. "
+        "When asked to add a command, write one file in that exact style and say which folder it belongs in. "
+        "Do not invent libraries, tables, or helpers that are not listed here."
     )
 
     if mode == "wild":
