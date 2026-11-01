@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.3"
+BOT_VERSION = "1.19.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.4",
+        "date": "2026-11-01",
+        "changes": [
+            "Added .antidelete on/off to repost deleted messages",
+        ],
+    },
     {
         "version": "1.19.3",
         "date": "2026-11-01",
@@ -1489,6 +1496,7 @@ COMMAND_HELP = {
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
+    "antidelete": "[Admin] Repost deleted messages.\nUsage: `.antidelete on` / `.antidelete off`",
     "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
