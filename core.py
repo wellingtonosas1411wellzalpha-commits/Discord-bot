@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.0"
+BOT_VERSION = "1.19.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.1",
+        "date": "2026-11-01",
+        "changes": [
+            "Added .repo back — shows the GitHub repository",
+        ],
+    },
     {
         "version": "1.19.0",
         "date": "2026-10-31",
@@ -1465,6 +1472,7 @@ COMMAND_HELP = {
     "donate": "Send coins to someone.\nUsage: `.donate <amount|all> @user`",
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
+    "repo": "Show the GitHub repository.\nUsage: `.repo`",
     "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
@@ -1536,7 +1544,7 @@ def build_menu_text():
         '   mines  ·  blackjack  ·  slot\n'
         '\n'
         '◈  UTILITY\n'
-        '   afk  ·  cds  ·  donate  ·  help  ·  ncm\n'
+        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo\n'
         '\n'
         '◈  ADMIN\n'
         '   give  ·  take  ·  setlevelrole  ·  levelroles\n'
