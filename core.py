@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.6"
+BOT_VERSION = "1.19.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.7",
+        "date": "2026-11-02",
+        "changes": [
+            "Removed duplicate slash commands",
+        ],
+    },
     {
         "version": "1.19.6",
         "date": "2026-11-02",
@@ -3432,11 +3439,11 @@ async def on_ready():
         print(f"Synced {len(synced)} global slash command(s)")
         for guild in bot.guilds:
             try:
-                bot.tree.copy_global_to(guild=guild)
-                guild_synced = await bot.tree.sync(guild=guild)
-                print(f"Synced {len(guild_synced)} slash command(s) to {guild.name}")
+                bot.tree.clear_commands(guild=guild)
+                await bot.tree.sync(guild=guild)
+                print(f"Cleared duplicate slash commands in {guild.name}")
             except Exception as e:
-                print(f"Guild slash sync failed for {guild.name}: {e}")
+                print(f"Guild slash cleanup failed for {guild.name}: {e}")
         current_names = sorted(set(c.name for c in synced))
         previous_raw = get_meta("command_list")
         if previous_raw is not None:
