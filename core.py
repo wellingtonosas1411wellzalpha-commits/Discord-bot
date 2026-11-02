@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.5"
+BOT_VERSION = "1.19.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.6",
+        "date": "2026-11-02",
+        "changes": [
+            "Added .botban and .xban so bans survive restarts",
+            "Added .botunban, .xunban, and .bans",
+        ],
+    },
     {
         "version": "1.19.5",
         "date": "2026-11-01",
@@ -504,6 +512,12 @@ class AuthCheckedTree(app_commands.CommandTree):
             return True
         if await interaction.client.is_owner(interaction.user):
             return True
+        if interaction.command:
+            reason = ban_reason(did(interaction.user.id), interaction.command.name)
+            if reason:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(reason, ephemeral=True)
+                return False
         if not auth_enabled.get(interaction.guild.id, True):
             await interaction.response.send_message(
                 "🔒 The bot is currently disabled in this server. An admin can turn it back on with `/auth on`.",
@@ -513,6 +527,61 @@ class AuthCheckedTree(app_commands.CommandTree):
         return True
 
 bot_restarting = False
+
+bot_bans = set()
+x_bans = {}
+BAN_CATEGORIES = {
+    "fun", "info", "economy", "jobs", "pets", "marriage", "achievements",
+    "market", "shop", "gambling", "utility", "levels", "admin", "owner",
+    "xephongpt", "tester",
+}
+COMMAND_CATEGORY = {
+    "ping": "fun", "8ball": "fun", "joke": "fun", "translate": "fun", "trt": "fun", "poll": "fun",
+    "avatar": "info", "userinfo": "info", "profile": "info", "updateinfo": "info", "versions": "info",
+    "bal": "economy", "withdraw": "economy", "deposit": "economy", "fish": "economy", "beg": "economy",
+    "dig": "economy", "rob": "economy", "loan": "economy", "payloan": "economy", "daily": "economy",
+    "work": "economy", "donate": "economy", "lb": "economy",
+    "setjob": "jobs", "myjob": "jobs", "jobs": "jobs", "treasury": "jobs",
+    "buypet": "pets", "feedpet": "pets", "collectpet": "pets", "pet": "pets",
+    "marry": "marriage", "marryaccept": "marriage", "divorce": "marriage", "partner": "marriage",
+    "achievements": "achievements",
+    "sell": "market", "market": "market", "buylisting": "market", "cancellisting": "market",
+    "shop": "shop", "buy": "shop", "use": "shop", "inventory": "shop",
+    "cf": "gambling", "roulette": "gambling", "mines": "gambling", "blackjack": "gambling",
+    "slot": "gambling", "roll": "gambling",
+    "afk": "utility", "cds": "utility", "help": "utility", "ncm": "utility", "menu": "utility",
+    "repo": "utility", "antidelete": "utility",
+    "rank": "levels", "ranklb": "levels", "setlevelrole": "levels", "levelroles": "levels", "syncroles": "levels",
+    "give": "admin", "take": "admin", "delete": "admin",
+    "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
+    "storage": "owner", "restart": "owner", "stats": "owner", "activity": "owner",
+    "clearcache": "owner", "reset": "owner", "ptag": "owner", "auth": "owner",
+    "xephongpt": "xephongpt", "test": "tester",
+}
+
+class BotBanFailure(commands.CheckFailure):
+    pass
+
+def load_bans():
+    global bot_bans, x_bans
+    raw = get_meta("bot_bans")
+    bot_bans = set(json.loads(raw)) if raw else set()
+    raw = get_meta("x_bans")
+    x_bans = json.loads(raw) if raw else {}
+
+def save_bans():
+    set_meta("bot_bans", json.dumps(sorted(bot_bans)))
+    set_meta("x_bans", json.dumps(x_bans))
+
+def ban_reason(user_id: str, command_name: str):
+    if user_id in bot_bans:
+        return "🚫 You are bot-banned. You cannot use commands."
+    category = COMMAND_CATEGORY.get(command_name)
+    banned = x_bans.get(user_id, [])
+    if category and category in banned:
+        return f"🚫 You are banned from **{category}** commands."
+    return None
+
 
 bot = commands.Bot(
     command_prefix=".",
@@ -537,6 +606,10 @@ async def global_auth_check(ctx: commands.Context) -> bool:
         return True
     if await bot.is_owner(ctx.author):
         return True
+    if ctx.command:
+        reason = ban_reason(did(ctx.author.id), ctx.command.name)
+        if reason:
+            raise BotBanFailure(reason)
     return auth_enabled.get(ctx.guild.id, True)
 
 @bot.event
@@ -545,6 +618,9 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
         await ctx.reply("❌ Only the bot owner can use this command.", mention_author=False)
         return
     if bot_restarting:
+        return
+    if isinstance(error, BotBanFailure):
+        await ctx.reply(str(error), mention_author=False)
         return
     if isinstance(error, commands.CheckFailure):
         await ctx.reply(
@@ -1503,6 +1579,11 @@ COMMAND_HELP = {
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
+    "botban": "[Admin] Ban a user from all commands.\nUsage: `.botban @user`",
+    "botunban": "[Admin] Remove a full command ban.\nUsage: `.botunban @user`",
+    "xban": "[Admin] Ban a user from one category.\nUsage: `.xban @user gambling`",
+    "xunban": "[Admin] Remove a category ban.\nUsage: `.xunban @user gambling`",
+    "bans": "[Admin] Show bot bans and category bans.\nUsage: `.bans`",
     "antidelete": "[Admin] Repost deleted messages.\nUsage: `.antidelete on` / `.antidelete off`",
     "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
@@ -1578,7 +1659,7 @@ def build_menu_text():
         '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo\n'
         '\n'
         '◈  ADMIN\n'
-        '   give  ·  take  ·  setlevelrole  ·  levelroles\n'
+        '   give  ·  take  ·  delete  ·  botban  ·  xban\n'
         '\n'
         '◈  OWNER\n'
         '   auth  ·  storage  ·  restart  ·  stats\n'
@@ -3331,6 +3412,7 @@ async def bank_interest_loop():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    load_bans()
     try:
         await bot.change_presence(
             status=discord.Status.online,
