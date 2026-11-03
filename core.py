@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.8"
+BOT_VERSION = "1.19.9"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.9",
+        "date": "2026-11-03",
+        "changes": [
+            "Added .fake — test command, the bot says real",
+        ],
+    },
     {
         "version": "1.19.8",
         "date": "2026-11-03",
@@ -1592,6 +1599,7 @@ COMMAND_HELP = {
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
+    "fake": "Test command. The bot says real.\nUsage: `.fake`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "botban": "[Admin] Ban a user from all commands.\nUsage: `.botban @user`",
     "botunban": "[Admin] Remove a full command ban.\nUsage: `.botunban @user`",
@@ -1670,7 +1678,7 @@ def build_menu_text():
         '   mines  ·  blackjack  ·  slot\n'
         '\n'
         '◈  UTILITY\n'
-        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo\n'
+        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake\n'
         '\n'
         '◈  ADMIN\n'
         '   give  ·  take  ·  delete  ·  botban  ·  xban\n'
