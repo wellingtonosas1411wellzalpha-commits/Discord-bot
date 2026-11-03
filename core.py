@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.7"
+BOT_VERSION = "1.19.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.19.8",
+        "date": "2026-11-03",
+        "changes": [
+            "New updates are posted in #moderator-only",
+        ],
+    },
     {
         "version": "1.19.7",
         "date": "2026-11-02",
@@ -3455,6 +3462,25 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
     await announce_restart_if_pending()
+    await announce_update_if_new()
+
+
+async def announce_update_if_new():
+    if get_meta("last_announced_version") == BOT_VERSION:
+        return
+    text_out = build_updateinfo_text()
+    sent = 0
+    for guild in bot.guilds:
+        channel = discord.utils.get(guild.text_channels, name="moderator-only")
+        if channel is None:
+            continue
+        try:
+            await channel.send(text_out)
+            sent += 1
+        except Exception as e:
+            print(f"Update announce failed in {guild.name}: {e}")
+    set_meta("last_announced_version", BOT_VERSION)
+    print(f"Update announce sent to {sent} moderator-only channel(s)")
 
 async def announce_restart_if_pending():
     if get_meta("restart_announce_pending") != "1":
