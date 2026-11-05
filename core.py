@@ -29,10 +29,19 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.0"
+BOT_VERSION = "1.20.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.1",
+        "date": "2026-11-05",
+        "changes": [
+            "/react now takes a message link or ID",
+            "Moved .react under Admin",
+            "Updates now post in #update-info",
+        ],
+    },
     {
         "version": "1.20.0",
         "date": "2026-11-05",
@@ -1607,7 +1616,7 @@ COMMAND_HELP = {
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
     "fake": "Test command. The bot says real.\nUsage: `.fake`",
-    "react": "React to the replied message, then delete the command.\nUsage: reply with `.react 15`",
+    "react": "[Admin] React to a message, then delete the command.\nUsage: reply with `.react 15` or `/react` with a message link`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "botban": "[Admin] Ban a user from all commands.\nUsage: `.botban @user`",
     "botunban": "[Admin] Remove a full command ban.\nUsage: `.botunban @user`",
@@ -1686,10 +1695,10 @@ def build_menu_text():
         '   mines  ·  blackjack  ·  slot\n'
         '\n'
         '◈  UTILITY\n'
-        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake  ·  react\n'
+        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake\n'
         '\n'
         '◈  ADMIN\n'
-        '   give  ·  take  ·  delete  ·  botban  ·  xban\n'
+        '   give  ·  take  ·  delete  ·  react  ·  botban  ·  xban\n'
         '\n'
         '◈  OWNER\n'
         '   auth  ·  storage  ·  restart  ·  stats\n'
@@ -3487,7 +3496,9 @@ async def announce_update_if_new():
     text_out = build_updateinfo_text()
     sent = 0
     for guild in bot.guilds:
-        channel = discord.utils.get(guild.text_channels, name="moderator-only")
+        channel = discord.utils.get(guild.text_channels, name="update-info")
+        if channel is None:
+            channel = discord.utils.get(guild.text_channels, name="moderator-only")
         if channel is None:
             continue
         try:
@@ -3495,8 +3506,9 @@ async def announce_update_if_new():
             sent += 1
         except Exception as e:
             print(f"Update announce failed in {guild.name}: {e}")
-    set_meta("last_announced_version", BOT_VERSION)
-    print(f"Update announce sent to {sent} moderator-only channel(s)")
+    if sent:
+        set_meta("last_announced_version", BOT_VERSION)
+    print(f"Update announce sent to {sent} update channel(s)")
 
 async def announce_restart_if_pending():
     if get_meta("restart_announce_pending") != "1":
