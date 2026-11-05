@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.2"
+BOT_VERSION = "1.20.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.3",
+        "date": "2026-11-05",
+        "changes": [
+            "Update posts in #update-info now mention #general",
+        ],
+    },
     {
         "version": "1.20.2",
         "date": "2026-11-05",
@@ -3510,7 +3517,9 @@ async def announce_update_if_new():
         if channel is None:
             continue
         try:
-            await channel.send(text_out)
+            general = discord.utils.get(guild.text_channels, name="general")
+            tag = f"{general.mention}\n" if general else ""
+            await channel.send(tag + text_out)
             sent += 1
         except Exception as e:
             print(f"Update announce failed in {guild.name}: {e}")
