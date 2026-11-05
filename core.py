@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.19.9"
+BOT_VERSION = "1.20.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.0",
+        "date": "2026-11-05",
+        "changes": [
+            "Added .react — reacts to the replied message, then deletes the command",
+        ],
+    },
     {
         "version": "1.19.9",
         "date": "2026-11-03",
@@ -1600,6 +1607,7 @@ COMMAND_HELP = {
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
     "fake": "Test command. The bot says real.\nUsage: `.fake`",
+    "react": "React to the replied message, then delete the command.\nUsage: reply with `.react 15`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "botban": "[Admin] Ban a user from all commands.\nUsage: `.botban @user`",
     "botunban": "[Admin] Remove a full command ban.\nUsage: `.botunban @user`",
@@ -1678,7 +1686,7 @@ def build_menu_text():
         '   mines  ·  blackjack  ·  slot\n'
         '\n'
         '◈  UTILITY\n'
-        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake\n'
+        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake  ·  react\n'
         '\n'
         '◈  ADMIN\n'
         '   give  ·  take  ·  delete  ·  botban  ·  xban\n'
