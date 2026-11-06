@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.3"
+BOT_VERSION = "1.20.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.4",
+        "date": "2026-11-06",
+        "changes": [
+            "Menu is now one command per line",
+            "Cleaner update, versions, and help screens",
+        ],
+    },
     {
         "version": "1.20.3",
         "date": "2026-11-05",
@@ -1670,59 +1678,125 @@ COMMAND_HELP = {
 
 def build_menu_text():
     return (
-        '✦  ━━━━━   X E P H O N   ━━━━━  ✦\n'
-        '\n'
-        'Developed by Kira\n'
-        '`.help <command>` for details\n'
-        '\n'
-        '◈  XEPHONGPT\n'
-        '   xephongpt on / off\n'
-        '   xephongpt wild / ai / normal\n'
-        '\n'
-        '◈  FUN\n'
-        '   ping  ·  8ball  ·  joke\n'
-        '   translate  ·  trt\n'
-        '\n'
-        '◈  INFO\n'
-        '   avatar  ·  userinfo  ·  profile\n'
-        '   poll  ·  updateinfo  ·  versions\n'
-        '\n'
-        '◈  ECONOMY\n'
-        '   bal  ·  daily  ·  work  ·  lb\n'
-        '   rank  ·  ranklb  ·  withdraw  ·  deposit\n'
-        '   fish  ·  beg  ·  dig  ·  rob\n'
-        '   loan  ·  payloan\n'
-        '\n'
-        '◈  JOBS\n'
-        '   jobs  ·  setjob  ·  myjob  ·  treasury\n'
-        '\n'
-        '◈  PETS\n'
-        '   buypet  ·  feedpet  ·  collectpet  ·  pet\n'
-        '\n'
-        '◈  MARRIAGE\n'
-        '   marry  ·  marryaccept  ·  divorce  ·  partner\n'
-        '\n'
-        '◈  SHOP\n'
-        '   shop  ·  buy  ·  use  ·  inventory\n'
-        '\n'
-        '◈  GAMBLING\n'
-        '   cf  ·  roll  ·  roulette\n'
-        '   mines  ·  blackjack  ·  slot\n'
-        '\n'
-        '◈  UTILITY\n'
-        '   afk  ·  cds  ·  donate  ·  help  ·  ncm  ·  repo  ·  fake\n'
-        '\n'
-        '◈  ADMIN\n'
-        '   give  ·  take  ·  delete  ·  react  ·  botban  ·  xban\n'
-        '\n'
-        '◈  OWNER\n'
-        '   auth  ·  storage  ·  restart  ·  stats\n'
-        '   activity  ·  clearcache  ·  reset  ·  ptag\n'
-        '\n'
-        '◈  TESTER\n'
-        '   test on  /  test off\n'
-        '\n'
-        '✦  Developed by Kira  ✦\n'
+        "✦ ━━━━━  X E P H O N  ━━━━━ ✦\n"
+        "\n"
+        "Developed by Kira\n"
+        "`.help <command>` for details\n"
+        "\n"
+        "◈  XEPHONGPT\n"
+        "   .xephongpt\n"
+        "   .xephongpt on / off\n"
+        "   .xephongpt wild / ai / normal\n"
+        "\n"
+        "◈  FUN\n"
+        "   .ping\n"
+        "   .8ball\n"
+        "   .joke\n"
+        "   .translate\n"
+        "   .trt\n"
+        "   .poll\n"
+        "\n"
+        "◈  INFO\n"
+        "   .avatar\n"
+        "   .userinfo\n"
+        "   .profile\n"
+        "   .updateinfo\n"
+        "   .versions\n"
+        "\n"
+        "◈  ECONOMY\n"
+        "   .bal\n"
+        "   .daily\n"
+        "   .work\n"
+        "   .lb\n"
+        "   .rank\n"
+        "   .ranklb\n"
+        "   .withdraw\n"
+        "   .deposit\n"
+        "   .fish\n"
+        "   .beg\n"
+        "   .dig\n"
+        "   .rob\n"
+        "   .loan\n"
+        "   .payloan\n"
+        "   .donate\n"
+        "\n"
+        "◈  JOBS\n"
+        "   .jobs\n"
+        "   .setjob\n"
+        "   .myjob\n"
+        "   .treasury\n"
+        "\n"
+        "◈  PETS\n"
+        "   .buypet\n"
+        "   .feedpet\n"
+        "   .collectpet\n"
+        "   .pet\n"
+        "\n"
+        "◈  MARRIAGE\n"
+        "   .marry\n"
+        "   .marryaccept\n"
+        "   .divorce\n"
+        "   .partner\n"
+        "\n"
+        "◈  ACHIEVEMENTS\n"
+        "   .achievements\n"
+        "\n"
+        "◈  MARKET\n"
+        "   .sell\n"
+        "   .market\n"
+        "   .buylisting\n"
+        "   .cancellisting\n"
+        "\n"
+        "◈  SHOP\n"
+        "   .shop\n"
+        "   .buy\n"
+        "   .use\n"
+        "   .inventory\n"
+        "\n"
+        "◈  GAMBLING\n"
+        "   .cf\n"
+        "   .roll\n"
+        "   .roulette\n"
+        "   .mines\n"
+        "   .blackjack\n"
+        "   .slot\n"
+        "\n"
+        "◈  UTILITY\n"
+        "   .afk\n"
+        "   .cds\n"
+        "   .help\n"
+        "   .ncm\n"
+        "   .menu\n"
+        "   .repo\n"
+        "   .fake\n"
+        "\n"
+        "◈  ADMIN\n"
+        "   .give\n"
+        "   .take\n"
+        "   .delete\n"
+        "   .react\n"
+        "   .botban\n"
+        "   .botunban\n"
+        "   .xban\n"
+        "   .xunban\n"
+        "   .bans\n"
+        "   .antidelete\n"
+        "\n"
+        "◈  OWNER\n"
+        "   .auth\n"
+        "   .storage\n"
+        "   .restart\n"
+        "   .stats\n"
+        "   .activity\n"
+        "   .clearcache\n"
+        "   .reset\n"
+        "   .ptag\n"
+        "\n"
+        "◈  TESTER\n"
+        "   .test on\n"
+        "   .test off\n"
+        "\n"
+        "✦  Developed by Kira  ✦\n"
     )
 
 def build_help_text(name: str) -> str:
@@ -1736,7 +1810,11 @@ def build_help_text(name: str) -> str:
     info = COMMAND_HELP.get(key)
     if not info:
         return f"❌ No help found for `{name}`.\nUse `.menu` to see command names."
-    return f"╭━━━〔 ❓ {key} 〕━━━⬣\n┃ {info.replace(chr(10), chr(10) + '┃ ')}\n╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    return (
+        f"✦ ━━━━━  {key.upper()}  ━━━━━ ✦\n"
+        f"\n{info}\n"
+        f"\n✦  Developed by Kira  ✦"
+    )
 
 def format_uptime(seconds: float):
     seconds = int(seconds)
@@ -4348,18 +4426,19 @@ def do_test(user_id, turn_on: bool):
 def build_updateinfo_text() -> str:
     info = LATEST_UPDATE_INFO
     lines = [
-        "╭━━━〔 🆕 Latest Update 〕━━━⬣",
-        "┃",
-        f"┃ Version: **{info['version']}**",
-        f"┃ Date: {info['date']}",
-        "┃",
-        "┃ What's new:",
+        "✦ ━━━━━  LATEST UPDATE  ━━━━━ ✦",
+        "",
+        f"Version  {info['version']}",
+        f"Date     {info['date']}",
+        "",
+        "What's new",
     ]
     for change in info["changes"]:
-        lines.append(f"┃ • {change}")
-    lines.append("┃")
-    lines.append("┃ Full log: `.versions`")
-    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+        lines.append(f"  • {change}")
+    lines.append("")
+    lines.append("Full log  .versions")
+    lines.append("")
+    lines.append("✦  Developed by Kira  ✦")
     return "\n".join(lines)
 
 def build_version_history_text() -> str:
@@ -4370,20 +4449,21 @@ def build_version_history_text() -> str:
     preserved — newest first, truncate once we're near the limit."""
     CHAR_BUDGET = 1900  # leave headroom under Discord's 2000 cap
     header = [
-        "╭━━━〔 📜 Version History 〕━━━⬣",
-        f"┃ Current: **{BOT_VERSION}**",
-        "┃",
+        "✦ ━━━━━  VERSION HISTORY  ━━━━━ ✦",
+        "",
+        f"Current  {BOT_VERSION}",
+        "",
     ]
-    footer_template = "╰━━━━━━━━━━━━━━━━━━━━━━⬣"
+    footer_template = "✦  Developed by Kira  ✦"
     used = sum(len(l) + 1 for l in header) + len(footer_template) + 1
 
     body_lines = []
     shown = 0
     for entry in VERSION_HISTORY:
-        entry_lines = [f"┃ **v{entry['version']}** — {entry['date']}"]
+        entry_lines = [f"v{entry['version']}  {entry['date']}"]
         for change in entry["changes"]:
-            entry_lines.append(f"┃  • {change}")
-        entry_lines.append("┃")
+            entry_lines.append(f"  • {change}")
+        entry_lines.append("")
         entry_len = sum(len(l) + 1 for l in entry_lines)
         if used + entry_len > CHAR_BUDGET:
             break
@@ -4394,8 +4474,8 @@ def build_version_history_text() -> str:
     omitted = len(VERSION_HISTORY) - shown
     lines = header + body_lines
     if omitted > 0:
-        lines.append(f"┃ …and {omitted} older update(s) not shown here.")
-        lines.append("┃")
+        lines.append(f"…and {omitted} older update(s) not shown here.")
+        lines.append("")
     lines.append(footer_template)
     return "\n".join(lines)
 
