@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.9"
+BOT_VERSION = "1.21.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.0",
+        "date": "2026-11-06",
+        "changes": [
+            "Storage and clearcache are code blocks",
+            "Removed extra lines from storage",
+        ],
+    },
     {
         "version": "1.20.9",
         "date": "2026-11-06",
@@ -1873,43 +1881,33 @@ def build_storage_text():
     except Exception:
         members = 0
     db_status = "connected"
-    economy_users = 0
-    treasury = 0
-    bot_bank = 0
     try:
         conn, cur = get_db()
-        cur.execute("SELECT COUNT(*) FROM balances")
-        economy_users = cur.fetchone()[0] or 0
+        cur.execute("SELECT 1")
         cur.close()
         release_db(conn)
-        treasury = get_treasury()
-        bot_bank = get_bot_bank()
     except Exception as e:
         db_status = f"error ({e.__class__.__name__})"
-    return (
-        "⚙️ *Bot Storage / Status*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 Version: {BOT_VERSION}\n"
-        f"🕒 Uptime: {format_uptime(uptime)}\n"
-        f"📡 Ping: {ping}ms\n"
-        f"🏠 Servers: {len(bot.guilds)}\n"
-        f"👥 Members: {members:,}\n"
-        f"👤 Cached users: {len(bot.users):,}\n"
-        f"💬 Cached messages: {len(bot.cached_messages):,}\n"
-        f"🗄️ Database: {db_status}\n"
-        f"👛 Economy users: {economy_users:,}\n"
-        f"🏦 Treasury: ${treasury:,}\n"
-        f"🤖 Bot bank: ${bot_bank:,}\n"
-        f"🧠 XephonGPT sessions: {len(kiragpt_sessions)}\n"
-        f"💣 Active mines games: {len(active_mines_games)}\n"
-        f"🃏 Active blackjack games: {len(active_blackjack_games)}\n"
-        f"💾 Bot RAM: {proc_mb:.1f} MB\n"
-        f"🖥️ System RAM: {mem.used / (1024 ** 2):.0f} / {mem.total / (1024 ** 2):.0f} MB ({mem.percent}%)\n"
-        f"{disk_line}\n"
-        f"⚙️ CPU: {cpu}%\n"
-        f"🧵 Threads: {process.num_threads()}\n"
-        "━━━━━━━━━━━━━━━━━━━"
+    disk_text = disk_line.split(": ", 1)[-1]
+    body = (
+        "STORAGE\n"
+        "\n"
+        f"Version      {BOT_VERSION}\n"
+        f"Uptime       {format_uptime(uptime)}\n"
+        f"Ping         {ping}ms\n"
+        "\n"
+        f"Servers      {len(bot.guilds)}\n"
+        f"Members      {members:,}\n"
+        f"Database     {db_status}\n"
+        "\n"
+        f"Sessions     {len(kiragpt_sessions)}\n"
+        f"Bot RAM      {proc_mb:.1f} MB\n"
+        f"System RAM   {mem.used / (1024 ** 2):.0f} / {mem.total / (1024 ** 2):.0f} MB\n"
+        f"Disk         {disk_text}\n"
+        f"CPU          {cpu}%\n"
+        f"Threads      {process.num_threads()}\n"
     )
+    return f"```\n{body}```"
 
 def do_clearcache():
     process = psutil.Process()
@@ -1918,12 +1916,14 @@ def do_clearcache():
     sessions_cleared = len(kiragpt_sessions)
     kiragpt_sessions.clear()
 
-    mines_cleared = 0
+    mines_cleared = len(active_mines_games)
+    active_mines_games.clear()
 
     bj_cleared = len(active_blackjack_games)
     active_blackjack_games.clear()
 
-    afk_cleared = 0
+    afk_cleared = len(afk_users)
+    afk_users.clear()
 
     for bucket in (
         cf_cooldowns, roulette_cooldowns, fish_cooldowns, beg_cooldowns,
@@ -1935,19 +1935,21 @@ def do_clearcache():
     after_mb = process.memory_info().rss / (1024 * 1024)
     freed_mb = max(0.0, before_mb - after_mb)
 
-    return (
-        "🧹 *Cache Cleared*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"🧠 XephonGPT sessions wiped: {sessions_cleared}\n"
-        f"💣 Mines games ended: {mines_cleared}\n"
-        f"🃏 Blackjack games ended: {bj_cleared}\n"
-        f"💤 AFK entries removed: {afk_cleared}\n"
-        f"⏱️ Memory cooldowns reset\n"
-        f"🗑️ GC objects collected: {collected}\n"
-        f"💾 RAM change: {freed_mb:.2f} MB\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "✅ Bot cache was actually cleared."
+    body = (
+        "CACHE CLEARED\n"
+        "\n"
+        f"Sessions     {sessions_cleared}\n"
+        f"Mines        {mines_cleared}\n"
+        f"Blackjack    {bj_cleared}\n"
+        f"AFK          {afk_cleared}\n"
+        "\n"
+        "Cooldowns    reset\n"
+        f"GC objects   {collected}\n"
+        f"RAM change   {freed_mb:.2f} MB\n"
+        "\n"
+        "Cache was cleared.\n"
     )
+    return f"```\n{body}```"
 
 FISH_CATCHES = [
     ("Blue Fish", 300, 1500),
