@@ -28,7 +28,7 @@
 
 Xephon is a next-generation **Discord bot** built for servers that want a full economy, levels, jobs, pets, and games in one system.
 
-> 👑 **Engineered & Developed by kira**
+> 👑 **Engineered & Developed by KIRA**
 
 ✨ **Designed specifically for:**
 * 💸 Real wallet, bank, loans, and a living market
@@ -83,6 +83,8 @@ Jobs and salary, pets you can feed and collect from, marriage, achievements, a p
 
 ## 📜 Command Grid
 
+Discord default prefix is `/` [Shows command in tab form right over your keyboard]
+
 Prefix is `.`  
 `.menu` shows the list. `.help <command>` shows the details.
 
@@ -91,7 +93,7 @@ Prefix is `.`
 | XephonGPT | `.xephongpt` |
 | Fun | `.ping` `.8ball` `.joke` `.translate` `.trt` `.poll` |
 | Info | `.avatar` `.userinfo` `.profile` `.updateinfo` `.versions` |
-| Economy | `.bal` `.daily` `.work` `.lb` `.rank` `.ranklb` `.withdraw` `.deposit` `.fish` `.beg` `.dig` `.rob` `.loan` `.payloan` `.donate` |
+| Economy | `.bal` `.daily` `.work` `.lb` `.rank` `.ranklb` `.withdraw` `.deposit` `.fish` `.beg` `.dig` `.rob` `.loan` | `.payloan` `.donate` |
 | Jobs | `.jobs` `.setjob` `.myjob` `.treasury` |
 | Pets | `.buypet` `.feedpet` `.collectpet` `.pet` |
 | Market | `.sell` `.market` `.buylisting` `.cancellisting` |
@@ -158,7 +160,7 @@ On Render, start command is `python start.py`.
 
 ## 📜 License & Support
 
-Built by **kira**.
+Built by **kIRA**.
 
 ⭐ **Star the repository**  
 🍴 **Fork it and build on it**  
