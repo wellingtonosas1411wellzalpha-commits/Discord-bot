@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.8"
+BOT_VERSION = "1.20.9"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.9",
+        "date": "2026-11-06",
+        "changes": [
+            "Menu, help, and versions are code blocks",
+            "Storage, clearcache, and restart are under Admin",
+        ],
+    },
     {
         "version": "1.20.8",
         "date": "2026-11-06",
@@ -643,8 +651,8 @@ COMMAND_CATEGORY = {
     "rank": "levels", "ranklb": "levels", "setlevelrole": "levels", "levelroles": "levels", "syncroles": "levels",
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
-    "storage": "owner", "restart": "owner", "stats": "owner", "activity": "owner",
-    "clearcache": "owner", "reset": "owner", "ptag": "owner", "auth": "owner",
+    "storage": "admin", "restart": "admin", "stats": "owner", "activity": "owner",
+    "clearcache": "admin", "reset": "owner", "ptag": "owner", "auth": "owner",
     "xephongpt": "xephongpt", "test": "tester",
 }
 
@@ -1706,127 +1714,126 @@ COMMAND_HELP = {
 }
 
 def build_menu_text():
-    return (
-        "╭━━━━━━━━━━  X E P H O N  ━━━━━━━━━━╮\n"
-        "┃\n"
-        "┃  Developed by Kira\n"
-        "┃  `.help <command>` for details\n"
-        "┃\n"
-        "┃  ◈ XEPHONGPT\n"
-        "┃    .xephongpt\n"
-        "┃    .xephongpt on / off\n"
-        "┃    .xephongpt wild / ai / normal\n"
-        "┃\n"
-        "┃  ◈ FUN\n"
-        "┃    .ping\n"
-        "┃    .8ball\n"
-        "┃    .joke\n"
-        "┃    .translate\n"
-        "┃    .trt\n"
-        "┃    .poll\n"
-        "┃\n"
-        "┃  ◈ INFO\n"
-        "┃    .avatar\n"
-        "┃    .userinfo\n"
-        "┃    .profile\n"
-        "┃    .updateinfo\n"
-        "┃    .versions\n"
-        "┃\n"
-        "┃  ◈ ECONOMY\n"
-        "┃    .bal\n"
-        "┃    .daily\n"
-        "┃    .work\n"
-        "┃    .lb\n"
-        "┃    .rank\n"
-        "┃    .ranklb\n"
-        "┃    .withdraw\n"
-        "┃    .deposit\n"
-        "┃    .fish\n"
-        "┃    .beg\n"
-        "┃    .dig\n"
-        "┃    .rob\n"
-        "┃    .loan\n"
-        "┃    .payloan\n"
-        "┃    .donate\n"
-        "┃\n"
-        "┃  ◈ JOBS\n"
-        "┃    .jobs\n"
-        "┃    .setjob\n"
-        "┃    .myjob\n"
-        "┃    .treasury\n"
-        "┃\n"
-        "┃  ◈ PETS\n"
-        "┃    .buypet\n"
-        "┃    .feedpet\n"
-        "┃    .collectpet\n"
-        "┃    .pet\n"
-        "┃\n"
-        "┃  ◈ MARRIAGE\n"
-        "┃    .marry\n"
-        "┃    .marryaccept\n"
-        "┃    .divorce\n"
-        "┃    .partner\n"
-        "┃\n"
-        "┃  ◈ ACHIEVEMENTS\n"
-        "┃    .achievements\n"
-        "┃\n"
-        "┃  ◈ MARKET\n"
-        "┃    .sell\n"
-        "┃    .market\n"
-        "┃    .buylisting\n"
-        "┃    .cancellisting\n"
-        "┃\n"
-        "┃  ◈ SHOP\n"
-        "┃    .shop\n"
-        "┃    .buy\n"
-        "┃    .use\n"
-        "┃    .inventory\n"
-        "┃\n"
-        "┃  ◈ GAMBLING\n"
-        "┃    .cf\n"
-        "┃    .roll\n"
-        "┃    .roulette\n"
-        "┃    .mines\n"
-        "┃    .blackjack\n"
-        "┃    .slot\n"
-        "┃\n"
-        "┃  ◈ UTILITY\n"
-        "┃    .afk\n"
-        "┃    .cds\n"
-        "┃    .help\n"
-        "┃    .ncm\n"
-        "┃    .menu\n"
-        "┃    .repo\n"
-        "┃    .fake\n"
-        "┃\n"
-        "┃  ◈ ADMIN\n"
-        "┃    .give\n"
-        "┃    .take\n"
-        "┃    .delete\n"
-        "┃    .react\n"
-        "┃    .botban\n"
-        "┃    .botunban\n"
-        "┃    .xban\n"
-        "┃    .xunban\n"
-        "┃    .bans\n"
-        "┃    .antidelete\n"
-        "┃\n"
-        "┃  ◈ OWNER\n"
-        "┃    .auth\n"
-        "┃    .storage\n"
-        "┃    .restart\n"
-        "┃    .stats\n"
-        "┃    .activity\n"
-        "┃    .clearcache\n"
-        "┃    .reset\n"
-        "┃    .ptag\n"
-        "┃\n"
-        "┃  ◈ TESTER\n"
-        "┃    .test on\n"
-        "┃    .test off\n"
-        "┃\n"
-        "╰━━━━━━━━━━  Developed by Kira  ━━━━━━━━━━╯\n"
-    )
+    body = """XEPHON
+Developed by Kira
+.help <command>
+
+XEPHONGPT
+  .xephongpt
+  .xephongpt on / off
+  .xephongpt wild / ai / normal
+
+FUN
+  .ping
+  .8ball
+  .joke
+  .translate
+  .trt
+  .poll
+
+INFO
+  .avatar
+  .userinfo
+  .profile
+  .updateinfo
+  .versions
+
+ECONOMY
+  .bal
+  .daily
+  .work
+  .lb
+  .rank
+  .ranklb
+  .withdraw
+  .deposit
+  .fish
+  .beg
+  .dig
+  .rob
+  .loan
+  .payloan
+  .donate
+
+JOBS
+  .jobs
+  .setjob
+  .myjob
+  .treasury
+
+PETS
+  .buypet
+  .feedpet
+  .collectpet
+  .pet
+
+MARRIAGE
+  .marry
+  .marryaccept
+  .divorce
+  .partner
+
+ACHIEVEMENTS
+  .achievements
+
+MARKET
+  .sell
+  .market
+  .buylisting
+  .cancellisting
+
+SHOP
+  .shop
+  .buy
+  .use
+  .inventory
+
+GAMBLING
+  .cf
+  .roll
+  .roulette
+  .mines
+  .blackjack
+  .slot
+
+UTILITY
+  .afk
+  .cds
+  .help
+  .ncm
+  .menu
+  .repo
+  .fake
+
+ADMIN
+  .give
+  .take
+  .delete
+  .react
+  .botban
+  .botunban
+  .xban
+  .xunban
+  .bans
+  .antidelete
+  .storage
+  .clearcache
+  .restart
+
+OWNER
+  .auth
+  .stats
+  .activity
+  .reset
+  .ptag
+
+TESTER
+  .test on
+  .test off
+
+Developed by Kira
+"""
+    return f"```\n{body}```"
 
 def build_help_text(name: str) -> str:
     key = name.strip().lower().lstrip("./")
@@ -1839,13 +1846,7 @@ def build_help_text(name: str) -> str:
     info = COMMAND_HELP.get(key)
     if not info:
         return f"❌ No help found for `{name}`.\nUse `.menu` to see command names."
-    return (
-        f"╭━━━━━━〔  {key.upper()}  〕━━━━━━╮\n"
-        f"┃\n"
-        f"┃  {info.replace(chr(10), chr(10) + '┃  ')}\n"
-        f"┃\n"
-        f"╰━━━━━━━━━━  Developed by Kira  ━━━━━━━━━━╯"
-    )
+    return fit_box(key.upper(), ["", info, "", "Developed by Kira", ""])
 
 def format_uptime(seconds: float):
     seconds = int(seconds)
@@ -4503,21 +4504,22 @@ def build_version_history_text() -> str:
     preserved — newest first, truncate once we're near the limit."""
     CHAR_BUDGET = 1900  # leave headroom under Discord's 2000 cap
     header = [
-        "╭━━━━━━〔  VERSION HISTORY  〕━━━━━━╮",
-        "┃",
-        f"┃  Current  {BOT_VERSION}",
-        "┃",
+        "+--------------------------+",
+        "|     VERSION HISTORY      |",
+        "+--------------------------+",
+        f"| Current  {BOT_VERSION:<15}|",
+        "|                          |",
     ]
-    footer_template = "╰━━━━━━━━━━  Developed by Kira  ━━━━━━━━━━╯"
+    footer_template = "+------ Developed by Kira ------+"
     used = sum(len(l) + 1 for l in header) + len(footer_template) + 1
 
     body_lines = []
     shown = 0
     for entry in VERSION_HISTORY:
-        entry_lines = [f"┃  v{entry['version']}  {entry['date']}"]
+        entry_lines = [f"| v{entry['version']}  {entry['date']}"]
         for change in entry["changes"]:
-            entry_lines.append(f"┃    • {change}")
-        entry_lines.append("┃")
+            entry_lines.append(f"| - {change[:28]}")
+        entry_lines.append("|")
         entry_len = sum(len(l) + 1 for l in entry_lines)
         if used + entry_len > CHAR_BUDGET:
             break
@@ -4528,10 +4530,10 @@ def build_version_history_text() -> str:
     omitted = len(VERSION_HISTORY) - shown
     lines = header + body_lines
     if omitted > 0:
-        lines.append(f"┃  …and {omitted} older update(s) not shown here.")
-        lines.append("┃")
+        lines.append(f"| ...{omitted} older updates")
+        lines.append("|")
     lines.append(footer_template)
-    return "\n".join(lines)
+    return "```\n" + "\n".join(lines) + "\n```"
 
 
 

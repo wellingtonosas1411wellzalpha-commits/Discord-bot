@@ -1,9 +1,9 @@
 from core import *
 
-@bot.tree.command(name="restart", description="[Owner only] Deploy the latest commit and restart Xephon")
+@bot.tree.command(name="restart", description="[Admin] Deploy the latest commit and restart Xephon")
 async def restart(interaction: discord.Interaction):
-    if not await interaction.client.is_owner(interaction.user):
-        await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
+    if not is_kira_creator(interaction.user):
+        await interaction.response.send_message("❌ Admins only.", ephemeral=True)
         return
     set_meta("restart_announce_channel", str(interaction.channel_id))
     set_meta("restart_announce_pending", "1")
@@ -22,8 +22,10 @@ async def restart(interaction: discord.Interaction):
 
 
 @bot.command(name="restart")
-@commands.is_owner()
 async def restart_prefix(ctx: commands.Context):
+    if not is_kira_creator(ctx.author):
+        await ctx.reply('❌ Admins only.', mention_author=False)
+        return
     set_meta("restart_announce_channel", str(ctx.channel.id))
     set_meta("restart_announce_pending", "1")
     ok, msg = await asyncio.to_thread(trigger_render_deploy)
