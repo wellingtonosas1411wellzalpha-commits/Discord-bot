@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.5"
+BOT_VERSION = "1.20.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.6",
+        "date": "2026-11-06",
+        "changes": [
+            "Fixed the update box so the lines stay straight",
+        ],
+    },
     {
         "version": "1.20.5",
         "date": "2026-11-06",
@@ -4440,15 +4447,18 @@ def build_updateinfo_text() -> str:
         f"┃  Version   {info['version']}",
         f"┃  Date      {info['date']}",
         "┃",
-        "┃  What's new",
+        "┃  WHAT'S NEW",
     ]
     for change in info["changes"]:
-        lines.append(f"┃    • {change}")
+        text_line = change
+        while text_line:
+            lines.append(f"┃    • {text_line[:28]}")
+            text_line = text_line[28:]
     lines.append("┃")
     lines.append("┃  Full log  .versions")
     lines.append("┃")
-    lines.append("╰━━━━━━━━━━  Developed by Kira  ━━━━━━━━━━╯")
-    return "\n".join(lines)
+    lines.append("╰━━━━  Developed by KIRA  ━━━━━╯")
+    return "```\n" + "\n".join(lines) + "\n```"
 
 def build_version_history_text() -> str:
     """Discord caps a single message at 2000 characters. As VERSION_HISTORY
