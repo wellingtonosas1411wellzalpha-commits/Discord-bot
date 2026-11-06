@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.20.7"
+BOT_VERSION = "1.20.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.20.8",
+        "date": "2026-11-06",
+        "changes": [
+            "Update box is now a code block",
+            "It looks the same on every device",
+        ],
+    },
     {
         "version": "1.20.7",
         "date": "2026-11-06",
@@ -4446,43 +4454,45 @@ def do_test(user_id, turn_on: bool):
 
 
 # moved from utility/menu.py
-def fit_box(title: str, rows: list[str], width: int = 22) -> str:
-    top = "╭" + "─" * (width + 2) + "╮"
-    bottom = "╰" + "─" * (width + 2) + "╯"
-    lines = [top, "┃ " + title.center(width) + " ┃", "┃ " + ("─" * width) + " ┃"]
+def fit_box(title: str, rows: list[str], width: int = 24) -> str:
+    bar = "+" + "-" * (width + 2) + "+"
+    lines = [bar, "| " + title.center(width) + " |", bar]
     for row in rows:
         chunk = row
         first = True
         while chunk or first:
             piece = chunk[:width]
             chunk = chunk[width:]
-            lines.append("┃ " + piece.ljust(width) + " ┃")
+            lines.append("| " + piece.ljust(width) + " |")
             first = False
             if not chunk:
                 break
-    lines.append(bottom)
+    lines.append(bar)
     return "```\n" + "\n".join(lines) + "\n```"
 
 def build_updateinfo_text() -> str:
     info = LATEST_UPDATE_INFO
     rows = [
-        f"Version  {info['version']}",
-        f"Date     {info['date']}",
+        "",
+        f"Version   {info['version']}",
+        f"Date      {info['date']}",
         "",
         "WHAT'S NEW",
+        "",
     ]
     for change in info["changes"]:
         words = change.split()
-        line = "•"
+        line = "-"
         for word in words:
             trial = f"{line} {word}"
-            if len(trial) <= 22:
+            if len(trial) <= 24:
                 line = trial
             else:
                 rows.append(line)
                 line = f"  {word}"
         rows.append(line)
-    rows.extend(["", "Full log  .versions", "", "Developed by Kira"])
+        rows.append("")
+    rows.extend(["Full log", ".versions", "", "Developed by Kira", ""])
     return fit_box("LATEST UPDATE", rows)
 
 def build_version_history_text() -> str:
