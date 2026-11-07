@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.2"
+BOT_VERSION = "1.21.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.3",
+        "date": "2026-11-07",
+        "changes": [
+            "Antibadword replies are code blocks",
+            "Storage and clearcache look livelier",
+        ],
+    },
     {
         "version": "1.21.2",
         "date": "2026-11-07",
@@ -1906,22 +1914,24 @@ def build_storage_text():
         db_status = f"error ({e.__class__.__name__})"
     disk_text = disk_line.split(": ", 1)[-1]
     body = (
-        "STORAGE\n"
+        "⚡ XEPHON STATUS\n"
         "\n"
-        f"Version      {BOT_VERSION}\n"
-        f"Uptime       {format_uptime(uptime)}\n"
-        f"Ping         {ping}ms\n"
+        f"📦  Version     {BOT_VERSION}\n"
+        f"⏱️  Uptime      {format_uptime(uptime)}\n"
+        f"📡  Ping        {ping} ms\n"
         "\n"
-        f"Servers      {len(bot.guilds)}\n"
-        f"Members      {members:,}\n"
-        f"Database     {db_status}\n"
+        f"🏠  Servers     {len(bot.guilds)}\n"
+        f"👥  Members     {members:,}\n"
+        f"🗄️  Database    {db_status}\n"
         "\n"
-        f"Sessions     {len(kiragpt_sessions)}\n"
-        f"Bot RAM      {proc_mb:.1f} MB\n"
-        f"System RAM   {mem.used / (1024 ** 2):.0f} / {mem.total / (1024 ** 2):.0f} MB\n"
-        f"Disk         {disk_text}\n"
-        f"CPU          {cpu}%\n"
-        f"Threads      {process.num_threads()}\n"
+        f"🧠  Sessions    {len(kiragpt_sessions)}\n"
+        f"💾  Bot RAM     {proc_mb:.1f} MB\n"
+        f"🖥️  System RAM  {mem.used / (1024 ** 2):.0f} / {mem.total / (1024 ** 2):.0f} MB\n"
+        f"💿  Disk        {disk_text}\n"
+        f"⚙️  CPU         {cpu}%\n"
+        f"🧵  Threads     {process.num_threads()}\n"
+        "\n"
+        "✦  Developed by Kira\n"
     )
     return f"```\n{body}```"
 
@@ -1952,18 +1962,19 @@ def do_clearcache():
     freed_mb = max(0.0, before_mb - after_mb)
 
     body = (
-        "CACHE CLEARED\n"
+        "🧹 CACHE CLEARED\n"
         "\n"
-        f"Sessions     {sessions_cleared}\n"
-        f"Mines        {mines_cleared}\n"
-        f"Blackjack    {bj_cleared}\n"
-        f"AFK          {afk_cleared}\n"
+        f"🧠  Sessions wiped     {sessions_cleared}\n"
+        f"💣  Mines ended        {mines_cleared}\n"
+        f"🃏  Blackjack ended    {bj_cleared}\n"
+        f"💤  AFK removed        {afk_cleared}\n"
         "\n"
-        "Cooldowns    reset\n"
-        f"GC objects   {collected}\n"
-        f"RAM change   {freed_mb:.2f} MB\n"
+        "⏱️  Cooldowns           reset\n"
+        f"🗑️  GC objects         {collected}\n"
+        f"💾  RAM change         {freed_mb:.2f} MB\n"
         "\n"
-        "Cache was cleared.\n"
+        "✅  Xephon feels lighter.\n"
+        "✦  Developed by Kira\n"
     )
     return f"```\n{body}```"
 

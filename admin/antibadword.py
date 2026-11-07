@@ -28,9 +28,12 @@ def find_bad_word(content: str, words: list) -> str | None:
             return word
     return None
 
+def code(text: str) -> str:
+    return f"```\n{text}\n```"
+
 async def run_antibadword(send, guild, user, action: str, extra: str = ""):
     if not is_kira_creator(user):
-        await send("❌ Admins only.")
+        await send(code("Admins only."))
         return
     data = load_abw(guild.id)
     action = (action or "").lower().strip()
@@ -39,46 +42,46 @@ async def run_antibadword(send, guild, user, action: str, extra: str = ""):
     if action in ("on", "off"):
         data["on"] = action == "on"
         save_abw(guild.id, data)
-        await send(f"Antibadword is **{action}**.")
+        await send(code(f"ANTIBADWORD\n\nState   {action}"))
         return
     if action == "mode":
         mode = extra.lower()
         if mode not in ("delete", "warn", "kick"):
-            await send("❌ Mode must be `delete`, `warn`, or `kick`.")
+            await send(code("Mode must be delete, warn, or kick."))
             return
         data["mode"] = mode
         save_abw(guild.id, data)
-        await send(f"Antibadword mode is **{mode}**.")
+        await send(code(f"ANTIBADWORD\n\nMode    {mode}"))
         return
     if action == "add":
         word = extra.lower()
         if not word:
-            await send("❌ Add a word. `.antibadword add word`")
+            await send(code("Add a word.\n.antibadword add word"))
             return
         if word not in data["words"]:
             data["words"].append(word)
         save_abw(guild.id, data)
-        await send(f"Added `{word}`.")
+        await send(code(f"ANTIBADWORD\n\nAdded   {word}"))
         return
     if action == "remove":
         word = extra.lower()
         data["words"] = [w for w in data["words"] if w != word]
         save_abw(guild.id, data)
-        await send(f"Removed `{word}`.")
+        await send(code(f"ANTIBADWORD\n\nRemoved {word}"))
         return
     if action == "list":
         words = ", ".join(data["words"]) or "none"
         state = "on" if data["on"] else "off"
-        await send(f"State: **{state}**\nMode: **{data['mode']}**\nWords: {words}")
+        await send(code(f"ANTIBADWORD\n\nState   {state}\nMode    {data['mode']}\nWords   {words}"))
         return
-    await send(
-        "Usage:\n"
-        "`.antibadword on/off`\n"
-        "`.antibadword add word`\n"
-        "`.antibadword remove word`\n"
-        "`.antibadword mode delete/warn/kick`\n"
-        "`.antibadword list`"
-    )
+    await send(code(
+        "ANTIBADWORD\n\n"
+        ".antibadword on/off\n"
+        ".antibadword add word\n"
+        ".antibadword remove word\n"
+        ".antibadword mode delete/warn/kick\n"
+        ".antibadword list"
+    ))
 
 @bot.tree.command(name="antibadword", description="[Admin] Filter bad words")
 @app_commands.describe(
