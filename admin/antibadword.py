@@ -82,14 +82,40 @@ async def run_antibadword(send, guild, user, action: str, extra: str = ""):
 
 @bot.tree.command(name="antibadword", description="[Admin] Filter bad words")
 @app_commands.describe(
-    action="on, off, add, remove, mode, or list",
-    extra="Word, or delete/warn/kick when using mode",
+    action="on, off, add, remove, list, or mode",
+    word="Word to add or remove",
+    mode="delete, warn, or kick",
 )
-async def antibadword_slash(interaction: discord.Interaction, action: str, extra: str = ""):
+@app_commands.choices(action=[
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+    app_commands.Choice(name="add", value="add"),
+    app_commands.Choice(name="remove", value="remove"),
+    app_commands.Choice(name="list", value="list"),
+    app_commands.Choice(name="mode", value="mode"),
+])
+@app_commands.choices(mode=[
+    app_commands.Choice(name="delete", value="delete"),
+    app_commands.Choice(name="warn", value="warn"),
+    app_commands.Choice(name="kick", value="kick"),
+])
+async def antibadword_slash(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    word: str = "",
+    mode: app_commands.Choice[str] = None,
+):
     if interaction.guild is None:
         await interaction.response.send_message("❌ Use this in a server.", ephemeral=True)
         return
-    await run_antibadword(interaction.response.send_message, interaction.guild, interaction.user, action, extra)
+    extra = mode.value if action.value == "mode" and mode else word
+    await run_antibadword(
+        interaction.response.send_message,
+        interaction.guild,
+        interaction.user,
+        action.value,
+        extra,
+    )
 
 @bot.command(name="antibadword")
 async def antibadword_prefix(ctx: commands.Context, action: str = "", *, extra: str = ""):
