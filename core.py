@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.0"
+BOT_VERSION = "1.21.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.1",
+        "date": "2026-11-07",
+        "changes": [
+            "Added .antibadword with on/off, delete, warn, and kick",
+        ],
+    },
     {
         "version": "1.21.0",
         "date": "2026-11-06",
@@ -655,7 +662,7 @@ COMMAND_CATEGORY = {
     "cf": "gambling", "roulette": "gambling", "mines": "gambling", "blackjack": "gambling",
     "slot": "gambling", "roll": "gambling",
     "afk": "utility", "cds": "utility", "help": "utility", "ncm": "utility", "menu": "utility",
-    "repo": "utility", "antidelete": "utility",
+    "repo": "utility", "antidelete": "utility", "antibadword": "admin",
     "rank": "levels", "ranklb": "levels", "setlevelrole": "levels", "levelroles": "levels", "syncroles": "levels",
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
@@ -1686,6 +1693,7 @@ COMMAND_HELP = {
     "fake": "Test command. The bot says real.\nUsage: `.fake`",
     "react": "[Admin] React to a message, then delete the command.\nUsage: reply with `.react 15` or `/react` with a message link`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
+    "antibadword": "[Admin] Filter a word.\nUsage: `.antibadword add word` / `.antibadword on` / `.antibadword mode warn`",
     "botban": "[Admin] Ban a user from all commands.\nUsage: `.botban @user`",
     "botunban": "[Admin] Remove a full command ban.\nUsage: `.botunban @user`",
     "xban": "[Admin] Ban a user from one category.\nUsage: `.xban @user gambling`",
@@ -1824,6 +1832,7 @@ ADMIN
   .xunban
   .bans
   .antidelete
+  .antibadword
   .storage
   .clearcache
   .restart
