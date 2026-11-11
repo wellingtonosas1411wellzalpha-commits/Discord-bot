@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.8"
+BOT_VERSION = "1.21.9"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.9",
+        "date": "2026-11-11",
+        "changes": [
+            ".updateinfo shows the update inside #update-info",
+            "Dead vision models are skipped",
+        ],
+    },
     {
         "version": "1.21.8",
         "date": "2026-11-11",
@@ -3846,8 +3854,6 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         messages.append({"role": "user", "content": content})
         models = (
             [
-                "llama-3.2-11b-vision-preview",
-                "llama-3.2-90b-vision-preview",
                 "meta-llama/llama-4-scout-17b-16e-instruct",
                 "meta-llama/llama-4-maverick-17b-128e-instruct",
             ]
@@ -3866,10 +3872,11 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
                 return text if text else "❌ XephonGPT didn't return anything — try rephrasing."
             except Exception as e:
                 last_error = e
-                if "model_not_found" in str(e) or "does not exist" in str(e):
+                err = str(e)
+                if "model_not_found" in err or "does not exist" in err or "decommissioned" in err:
                     continue
                 break
-        if images and last_error and ("model_not_found" in str(last_error) or "does not exist" in str(last_error)):
+        if images and last_error and ("model_not_found" in str(last_error) or "does not exist" in str(last_error) or "decommissioned" in str(last_error)):
             return "❌ This Groq key cannot read pictures. Text chat still works."
         return f"❌ XephonGPT error: {last_error}"
     except Exception as e:
