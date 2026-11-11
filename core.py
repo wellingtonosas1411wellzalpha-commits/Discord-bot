@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.6"
+BOT_VERSION = "1.21.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.8",
+        "date": "2026-11-11",
+        "changes": [
+            "Picture reading tries every Groq vision model",
+            "Failed picture reads show a short error",
+        ],
+    },
     {
         "version": "1.21.6",
         "date": "2026-11-11",
