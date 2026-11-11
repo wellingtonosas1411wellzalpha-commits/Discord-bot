@@ -3836,17 +3836,34 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         if images:
             content = [{"type": "text", "text": content}] + images
         messages.append({"role": "user", "content": content})
-        model = "meta-llama/llama-4-maverick-17b-128e-instruct" if images else "openai/gpt-oss-120b"
-        response = await asyncio.to_thread(
-            groq_client.chat.completions.create,
-            model=model,
-            messages=messages,
-            max_tokens=4096,
+        models = (
+            [
+                "llama-3.2-11b-vision-preview",
+                "llama-3.2-90b-vision-preview",
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+                "meta-llama/llama-4-maverick-17b-128e-instruct",
+            ]
+            if images else ["openai/gpt-oss-120b"]
         )
-        text = (response.choices[0].message.content or "").strip()
-        return text if text else "❌ XephonGPT didn't return anything — try rephrasing."
-    except Exception as e:
-        return f"❌ XephonGPT error: {e}"
+        last_error = None
+        for model in models:
+            try:
+                response = await asyncio.to_thread(
+                    groq_client.chat.completions.create,
+                    model=model,
+                    messages=messages,
+                    max_tokens=4096,
+                )
+                text = (response.choices[0].message.content or "").strip()
+                return text if text else "❌ XephonGPT didn't return anything — try rephrasing."
+            except Exception as e:
+                last_error = e
+                if "model_not_found" in str(e) or "does not exist" in str(e):
+                    continue
+                break
+        if images and last_error and ("model_not_found" in str(last_error) or "does not exist" in str(last_error)):
+            return "❌ This Groq key cannot read pictures. Text chat still works."
+        return f"❌ XephonGPT error: {last_error}"
 
 async def translate_text(language: str, text: str) -> str:
     if not groq_client:
