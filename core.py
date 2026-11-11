@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.5"
+BOT_VERSION = "1.21.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.6",
+        "date": "2026-11-11",
+        "changes": [
+            "Picture reading now uses a Groq vision model that exists",
+        ],
+    },
     {
         "version": "1.21.5",
         "date": "2026-11-11",
@@ -3829,7 +3836,7 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         if images:
             content = [{"type": "text", "text": content}] + images
         messages.append({"role": "user", "content": content})
-        model = "meta-llama/llama-4-scout-17b-16e-instruct" if images else "openai/gpt-oss-120b"
+        model = "meta-llama/llama-4-maverick-17b-128e-instruct" if images else "openai/gpt-oss-120b"
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model=model,
