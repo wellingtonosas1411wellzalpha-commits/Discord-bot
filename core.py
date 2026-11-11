@@ -3864,6 +3864,8 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         if images and last_error and ("model_not_found" in str(last_error) or "does not exist" in str(last_error)):
             return "❌ This Groq key cannot read pictures. Text chat still works."
         return f"❌ XephonGPT error: {last_error}"
+    except Exception as e:
+        return f"❌ XephonGPT error: {e}"
 
 async def translate_text(language: str, text: str) -> str:
     if not groq_client:
