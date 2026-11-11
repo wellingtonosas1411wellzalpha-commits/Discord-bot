@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.4"
+BOT_VERSION = "1.21.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.5",
+        "date": "2026-11-11",
+        "changes": [
+            "XephonGPT can read pictures, GIFs, and video files",
+        ],
+    },
     {
         "version": "1.21.4",
         "date": "2026-11-11",
@@ -3780,7 +3787,37 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
         )
     return prompt
 
-async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None) -> str:
+async def media_parts_from_message(message) -> list:
+    parts = []
+    if message is None:
+        return parts
+    for att in getattr(message, "attachments", []) or []:
+        name = (att.filename or "file").lower()
+        ctype = (att.content_type or "").lower()
+        is_image = ctype.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+        is_video = ctype.startswith("video/") or name.endswith((".mp4", ".mov", ".webm", ".mkv"))
+        if is_image:
+            if att.size and att.size > 4_000_000:
+                parts.append({"type": "text", "text": f"[picture too large to read: {att.filename}]"})
+                continue
+            try:
+                data = await att.read()
+            except Exception as e:
+                parts.append({"type": "text", "text": f"[could not download {att.filename}: {e}]"})
+                continue
+            import base64
+            mime = "image/gif" if name.endswith(".gif") or "gif" in ctype else "image/jpeg"
+            if name.endswith(".png") or "png" in ctype:
+                mime = "image/png"
+            elif name.endswith(".webp") or "webp" in ctype:
+                mime = "image/webp"
+            b64 = base64.b64encode(data).decode()
+            parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        elif is_video:
+            parts.append({"type": "text", "text": f"[video attached: {att.filename}, {att.size or 0} bytes]"})
+    return parts
+
+async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None, images: list = None) -> str:
     if not groq_client:
         return "❌ XephonGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
     system_prompt = get_kiragpt_system_prompt(mode, is_creator)
@@ -3788,10 +3825,14 @@ async def generate_code_response(prompt: str, mode: str = "normal", is_creator: 
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history[-12:])
-        messages.append({"role": "user", "content": prompt})
+        content = prompt or "What is in this?"
+        if images:
+            content = [{"type": "text", "text": content}] + images
+        messages.append({"role": "user", "content": content})
+        model = "meta-llama/llama-4-scout-17b-16e-instruct" if images else "openai/gpt-oss-120b"
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
-            model="openai/gpt-oss-120b",
+            model=model,
             messages=messages,
             max_tokens=4096,
         )
@@ -3978,7 +4019,7 @@ async def on_message(message: discord.Message):
     # XephonGPT continuous chat
     user_id = did(message.author.id)
     session = kiragpt_sessions.get(user_id)
-    if session and session.get("active") and message.reference and message.content and message.content.strip():
+    if session and session.get("active") and message.reference and (message.content.strip() or message.attachments):
         try:
             ref = message.reference.resolved
             if ref is None:
@@ -3990,7 +4031,9 @@ async def on_message(message: discord.Message):
                             await message.reply(text, file=file)
                         else:
                             await message.reply(text)
-                    await handle_kiragpt_message(message.author, message.content, send_func)
+                    images = await media_parts_from_message(message)
+                    images += await media_parts_from_message(ref)
+                    await handle_kiragpt_message(message.author, message.content, send_func, images=images)
                 return
         except Exception as e:
             print(f"XephonGPT reply handling failed: {e}")
@@ -4309,7 +4352,7 @@ def get_kiragpt_session(user_id: str):
 
 MAX_REPLIES_FOR_NORMAL_USERS = 50
 
-async def handle_kiragpt_message(user, prompt: str, send_func):
+async def handle_kiragpt_message(user, prompt: str, send_func, images: list = None):
     user_id = did(user.id)
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
@@ -4338,19 +4381,19 @@ async def handle_kiragpt_message(user, prompt: str, send_func):
         await send_func("😊 **Normal mode** activated. I'll be nice and helpful.")
         return
 
-    if not prompt.strip():
+    if not prompt.strip() and not images:
         await send_func(
             "❌ Usage:\n"
             "`.xephongpt <message>`\n"
             "`.xephongpt on/off` — continuous chat\n"
-            "`.xephongpt wild on` / `ai on` / `normal on` — change mode"
+            "Reply to a picture, GIF, or video and I can read it."
         )
         return
 
     mode = session.get("mode", "normal")
 
     reply_text = await generate_code_response(
-        prompt, mode=mode, is_creator=is_creator, history=session["history"]
+        prompt, mode=mode, is_creator=is_creator, history=session["history"], images=images
     )
 
     session["history"].append({"role": "user", "content": prompt[:1500]})

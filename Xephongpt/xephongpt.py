@@ -82,5 +82,12 @@ async def kiragpt_prefix(ctx: commands.Context, *, prompt: str = ""):
                 await ctx.reply(text, file=file)
             else:
                 await ctx.reply(text)
-        await handle_kiragpt_message(ctx.author, prompt, send_func)
+        images = await media_parts_from_message(ctx.message)
+        if ctx.message.reference and ctx.message.reference.message_id:
+            try:
+                replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+                images += await media_parts_from_message(replied)
+            except Exception:
+                pass
+        await handle_kiragpt_message(ctx.author, prompt, send_func, images=images)
 
