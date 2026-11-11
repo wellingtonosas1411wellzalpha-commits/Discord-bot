@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.3"
+BOT_VERSION = "1.21.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.21.4",
+        "date": "2026-11-11",
+        "changes": [
+            "Update posts now ping @everyone and #general",
+        ],
+    },
     {
         "version": "1.21.3",
         "date": "2026-11-07",
@@ -3657,8 +3664,13 @@ async def announce_update_if_new():
             continue
         try:
             general = discord.utils.get(guild.text_channels, name="general")
-            tag = f"{general.mention}\n" if general else ""
-            await channel.send(tag + text_out)
+            tag = "@everyone"
+            if general:
+                tag += f" {general.mention}"
+            await channel.send(
+                tag + "\n" + text_out,
+                allowed_mentions=discord.AllowedMentions(everyone=True),
+            )
             sent += 1
         except Exception as e:
             print(f"Update announce failed in {guild.name}: {e}")
