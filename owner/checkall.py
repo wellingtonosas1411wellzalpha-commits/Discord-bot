@@ -49,15 +49,8 @@ async def checkall_slash(interaction: discord.Interaction):
         await interaction.response.send_message("Owner only.", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
-    ctx = await bot.get_context(interaction)
-    # prefix invoke needs a message context; build one from the interaction message if present
-    if interaction.channel is None:
-        await interaction.followup.send("Use this in a server.", ephemeral=True)
-        return
-    msg = await interaction.original_response()
-    prefix_ctx = await bot.get_context(msg)
-    prefix_ctx.author = interaction.user if isinstance(interaction.user, discord.Member) else prefix_ctx.author
-    report = await run_checkall(prefix_ctx)
+    ctx = await commands.Context.from_interaction(interaction)
+    report = await run_checkall(ctx)
     await interaction.followup.send(report, ephemeral=True)
 
 @bot.command(name="checkall")
