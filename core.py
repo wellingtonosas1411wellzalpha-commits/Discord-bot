@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.3"
+BOT_VERSION = "1.22.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.4",
+        "date": "2026-11-13",
+        "changes": [
+            "/checkall added",
+            "Command check is silent",
+        ],
+    },
     {
         "version": "1.22.3",
         "date": "2026-11-13",
