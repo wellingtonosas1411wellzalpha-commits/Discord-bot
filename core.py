@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.1"
+BOT_VERSION = "1.22.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.2",
+        "date": "2026-11-13",
+        "changes": [
+            "Picture reading is off for now",
+        ],
+    },
     {
         "version": "1.22.1",
         "date": "2026-11-13",
@@ -3889,12 +3896,7 @@ def read_pictures_with_gemini(prompt: str, images: list, system_prompt: str):
 async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None, images: list = None) -> str:
     system_prompt = get_kiragpt_system_prompt(mode, is_creator)
     if images:
-        text_out, err = await asyncio.to_thread(read_pictures_with_gemini, prompt, images, system_prompt)
-        if text_out:
-            return text_out
-        if err == "missing":
-            return "❌ Picture reading needs a `GEMINI_API_KEY` on Render. Text chat still uses Groq."
-        return "❌ Could not read that picture. Check the Gemini key."
+        return "Picture reading is off for now. Send text and I'll answer."
     if not groq_client:
         return "❌ XephonGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
     try:
