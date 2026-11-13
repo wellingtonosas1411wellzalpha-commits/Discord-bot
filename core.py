@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.2"
+BOT_VERSION = "1.22.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.3",
+        "date": "2026-11-13",
+        "changes": [
+            "Added .checkall to test commands and report failures",
+        ],
+    },
     {
         "version": "1.22.2",
         "date": "2026-11-13",
@@ -740,7 +747,7 @@ COMMAND_CATEGORY = {
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
     "storage": "admin", "restart": "admin", "stats": "owner", "activity": "owner",
-    "clearcache": "admin", "reset": "owner", "ptag": "owner", "auth": "owner",
+    "clearcache": "admin", "reset": "owner", "ptag": "owner", "checkall": "owner", "auth": "owner",
     "xephongpt": "xephongpt", "test": "tester",
 }
 
@@ -1917,6 +1924,7 @@ OWNER
   .activity
   .reset
   .ptag
+  .checkall
 
 TESTER
   .test on
