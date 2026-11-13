@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.0"
+BOT_VERSION = "1.22.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.1",
+        "date": "2026-11-13",
+        "changes": [
+            "Picture reading now uses Gemini instead of Groq",
+        ],
+    },
     {
         "version": "1.22.0",
         "date": "2026-11-13",
@@ -942,6 +949,7 @@ BANK_INTEREST_RATE = 0.02  # daily interest on bank balance
 DATABASE_URL = os.getenv("DATABASE_URL")
 RENDER_DEPLOY_HOOK = os.getenv("RENDER_DEPLOY_HOOK", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 try:
@@ -3847,10 +3855,48 @@ async def media_parts_from_message(message) -> list:
             parts.append({"type": "text", "text": f"[video attached: {att.filename}, {att.size or 0} bytes]"})
     return parts
 
+def read_pictures_with_gemini(prompt: str, images: list, system_prompt: str):
+    if not GEMINI_API_KEY:
+        return None, "missing"
+    parts = [{"text": f"{system_prompt}\n\n{prompt or 'What is in this?'}"}]
+    for img in images:
+        if img.get("type") == "text":
+            parts.append({"text": img.get("text", "")})
+            continue
+        url = (img.get("image_url") or {}).get("url", "")
+        if not url.startswith("data:") or "," not in url:
+            continue
+        header, b64 = url.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
+        parts.append({"inline_data": {"mime_type": mime, "data": b64}})
+    body = json.dumps({"contents": [{"parts": parts}]}).encode()
+    last = None
+    for model in ("gemini-2.0-flash", "gemini-1.5-flash"):
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=40) as resp:
+                data = json.loads(resp.read().decode())
+            text_out = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return text_out, None
+        except Exception as e:
+            last = e
+    return None, last
+
 async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None, images: list = None) -> str:
+    system_prompt = get_kiragpt_system_prompt(mode, is_creator)
+    if images:
+        text_out, err = await asyncio.to_thread(read_pictures_with_gemini, prompt, images, system_prompt)
+        if text_out:
+            return text_out
+        if err == "missing":
+            return "❌ Picture reading needs a `GEMINI_API_KEY` on Render. Text chat still uses Groq."
+        return "❌ Could not read that picture. Check the Gemini key."
     if not groq_client:
         return "❌ XephonGPT isn't set up yet — the owner needs to add a `GROQ_API_KEY`."
-    system_prompt = get_kiragpt_system_prompt(mode, is_creator)
     try:
         messages = [{"role": "system", "content": system_prompt}]
         if history:
