@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.21.9"
+BOT_VERSION = "1.22.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.0",
+        "date": "2026-11-13",
+        "changes": [
+            "Fixed .syncroles and /syncroles",
+        ],
+    },
     {
         "version": "1.21.9",
         "date": "2026-11-11",
@@ -4840,6 +4847,8 @@ async def _sync_roles_for(member: discord.Member):
             given.append(role.name)
         except discord.Forbidden:
             blocked.append(role.name)
+        except discord.HTTPException as e:
+            blocked.append(f"{role.name} ({e.status})")
     if not given and not blocked and not gone:
         return "✅ You already have every role reward you've earned."
     parts = []
