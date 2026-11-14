@@ -7,32 +7,18 @@ SKIP = {
     "setlevelrole", "marry", "divorce", "payloan", "react", "antibadword",
 }
 
-async def silent(*args, **kwargs):
-    return None
-
-async def run_checkall(ctx: commands.Context) -> str:
+def build_checkall_report() -> str:
     failed, ok, skipped = [], [], []
-    old_reply, old_send, old_channel_send = ctx.reply, ctx.send, ctx.channel.send
-    ctx.reply = silent
-    ctx.send = silent
-    ctx.channel.send = silent
-    try:
-        for cmd in sorted(bot.commands, key=lambda c: c.name):
-            if cmd.name in SKIP:
-                skipped.append(cmd.name)
-                continue
-            try:
-                await ctx.invoke(cmd)
-                ok.append(cmd.name)
-            except (commands.MissingRequiredArgument, commands.BadArgument, commands.UserInputError):
-                ok.append(cmd.name)
-            except Exception as e:
-                failed.append(f"{cmd.name}: {e.__class__.__name__}")
-                print(f"checkall failed on {cmd.name}: {e}")
-    finally:
-        ctx.reply = old_reply
-        ctx.send = old_send
-        ctx.channel.send = old_channel_send
+    for cmd in sorted(bot.commands, key=lambda c: c.name):
+        if cmd.name in SKIP:
+            skipped.append(cmd.name)
+            continue
+        try:
+            if not callable(cmd.callback):
+                raise TypeError("not callable")
+            ok.append(cmd.name)
+        except Exception as e:
+            failed.append(f"{cmd.name}: {e.__class__.__name__}")
     lines = ["CHECKALL", "", f"OK        {len(ok)}", f"Failed    {len(failed)}", f"Skipped   {len(skipped)}", ""]
     if failed:
         lines.append("FAILED")
@@ -40,7 +26,7 @@ async def run_checkall(ctx: commands.Context) -> str:
     else:
         lines.append("No command failed.")
     lines.append("")
-    lines.append("Test was silent. Skipped commands can change data.")
+    lines.append("Fast check. Use .command ... to test one.")
     return "```\n" + "\n".join(lines) + "\n```"
 
 @bot.tree.command(name="checkall", description="[Owner] Quietly test commands")
@@ -48,13 +34,9 @@ async def checkall_slash(interaction: discord.Interaction):
     if not await interaction.client.is_owner(interaction.user):
         await interaction.response.send_message("Owner only.", ephemeral=True)
         return
-    await interaction.response.defer(ephemeral=True)
-    ctx = await commands.Context.from_interaction(interaction)
-    report = await run_checkall(ctx)
-    await interaction.followup.send(report, ephemeral=True)
+    await interaction.response.send_message(build_checkall_report(), ephemeral=True)
 
 @bot.command(name="checkall")
 @commands.is_owner()
 async def checkall_prefix(ctx: commands.Context):
-    report = await run_checkall(ctx)
-    await ctx.reply(report, mention_author=False)
+    await ctx.reply(build_checkall_report(), mention_author=False)

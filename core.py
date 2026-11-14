@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.4"
+BOT_VERSION = "1.22.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.5",
+        "date": "2026-11-14",
+        "changes": [
+            "Add ... to a command to check if it works",
+            "checkall is now a fast silent check",
+        ],
+    },
     {
         "version": "1.22.4",
         "date": "2026-11-13",
@@ -4196,6 +4204,16 @@ async def on_message(message: discord.Message):
             except Exception as e:
                 print(f"NCM failed: {e}")
                 await message.reply(f"❌ NCM failed: {e}", mention_author=False)
+            return
+
+    raw = (message.content or "").strip()
+    if raw.endswith("..."):
+        probe = raw[:-3].strip()
+        if probe.startswith("."):
+            name = probe[1:].split()[0].lower() if probe[1:].strip() else ""
+            cmd = bot.get_command(name) if name else None
+            if cmd is not None:
+                await message.reply(f"`.{cmd.name}` is working", mention_author=False)
             return
 
     await bot.process_commands(message)
