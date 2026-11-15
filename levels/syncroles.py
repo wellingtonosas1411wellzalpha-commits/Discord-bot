@@ -1,12 +1,5 @@
 from core import *
 
-async def run_syncroles(member):
-    try:
-        return await _sync_roles_for(member)
-    except Exception as e:
-        print(f"syncroles failed: {e}")
-        return f"Could not sync roles.\n{e.__class__.__name__}: {e}"
-
 @bot.tree.command(name="syncroles", description="Re-apply any level role rewards you're missing")
 async def syncroles(interaction: discord.Interaction):
     if interaction.guild is None:
@@ -16,7 +9,7 @@ async def syncroles(interaction: discord.Interaction):
     member = interaction.user
     if not isinstance(member, discord.Member):
         member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
-    await interaction.followup.send(await run_syncroles(member))
+    await interaction.followup.send(await sync_roles_for(member))
 
 @bot.command(name="syncroles")
 async def syncroles_prefix(ctx: commands.Context):
@@ -26,4 +19,4 @@ async def syncroles_prefix(ctx: commands.Context):
     member = ctx.author
     if not isinstance(member, discord.Member):
         member = ctx.guild.get_member(ctx.author.id) or await ctx.guild.fetch_member(ctx.author.id)
-    await ctx.reply(await run_syncroles(member))
+    await ctx.reply(await sync_roles_for(member))

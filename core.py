@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.8"
+BOT_VERSION = "1.22.9"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.9",
+        "date": "2026-11-15",
+        "changes": [
+            "syncroles now explains your level and missing roles",
+        ],
+    },
     {
         "version": "1.22.8",
         "date": "2026-11-15",
@@ -4934,16 +4941,21 @@ def build_ranklb_text() -> str:
 
 
 # moved from levels/levelroles.py
-async def _sync_roles_for(member: discord.Member):
+async def sync_roles_for(member: discord.Member):
     """Re-applies any level role rewards the member has earned but doesn't
     have — for cases where auto-assignment failed (e.g. a permissions fix
     happened after the level-up already occurred)."""
     data = get_level_data(did(member.id))
     current_level = data["level"]
     rows = list_level_roles(member.guild.id)
-    given, blocked, gone = [], [], []
+    given, blocked, gone, upcoming = [], [], [], []
     for level, role_id in rows:
         if level > current_level:
+            try:
+                role = member.guild.get_role(int(role_id))
+                upcoming.append(f"Level {level} → {role.name if role else 'missing role'}")
+            except (TypeError, ValueError):
+                upcoming.append(f"Level {level} → missing role")
             continue
         try:
             role = member.guild.get_role(int(role_id))
@@ -4966,15 +4978,21 @@ async def _sync_roles_for(member: discord.Member):
             blocked.append(role.name)
         except discord.HTTPException as e:
             blocked.append(f"{role.name} ({e.status})")
-    if not given and not blocked and not gone:
-        return f"You are level {current_level}.\nAll roles are active"
     parts = [f"You are level {current_level}."]
     if given:
-        parts.append(f"🏅 Given: {', '.join(given)}")
+        parts.append("Given: " + ", ".join(given))
     if blocked:
-        parts.append(f"⚠️ Couldn't give (check the bot's Manage Roles permission and role position): {', '.join(blocked)}")
+        parts.append("Could not give: " + ", ".join(blocked))
+        parts.append("Check Manage Roles and role position.")
     if gone:
-        parts.append(f"⚠️ Configured role(s) for level(s) {', '.join(gone)} no longer exist on this server.")
+        parts.append("Missing role setup for level(s): " + ", ".join(gone))
+    if upcoming:
+        parts.append("Not reached yet:")
+        parts.extend(upcoming)
+    if not given and not blocked and not gone and not upcoming:
+        parts.append("All roles are active")
+    elif not given and not blocked and not gone:
+        parts.append("All earned roles are active")
     return "\n".join(parts)
 
 
