@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.6"
+BOT_VERSION = "1.22.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.7",
+        "date": "2026-11-15",
+        "changes": [
+            "syncroles now shows the real problem",
+        ],
+    },
     {
         "version": "1.22.6",
         "date": "2026-11-15",
@@ -4923,11 +4930,19 @@ async def _sync_roles_for(member: discord.Member):
     for level, role_id in rows:
         if level > current_level:
             continue
-        role = member.guild.get_role(int(role_id))
+        try:
+            role = member.guild.get_role(int(role_id))
+        except (TypeError, ValueError):
+            gone.append(str(level))
+            continue
         if role is None:
             gone.append(str(level))
             continue
-        if role in member.roles:
+        try:
+            has_role = role in member.roles
+        except Exception:
+            has_role = False
+        if has_role:
             continue
         try:
             await member.add_roles(role, reason="Level role sync")
