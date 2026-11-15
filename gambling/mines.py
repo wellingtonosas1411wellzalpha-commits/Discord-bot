@@ -11,7 +11,7 @@ async def mines_prefix(ctx: commands.Context, *args):
         return
     if user_id in active_mines_games:
         if len(args) != 1:
-            await ctx.reply("❌ Type `.mines <1-25>` to dig or `.mines cashout` to cash out.")
+            await ctx.reply("Type `.mines <1-25>` to dig or `.mines cashout` to cash out.")
             return
         await ctx.reply(dig_mines(user_id, args[0]))
         return
@@ -19,9 +19,23 @@ async def mines_prefix(ctx: commands.Context, *args):
     mines_str = args[1] if len(args) > 1 else None
     await ctx.reply(start_mines(user_id, bet_str, mines_str))
 
-
-@bot.tree.command(name="mines", description="Start a mines game")
-@app_commands.describe(bet="Amount to bet, or 'all'", mines="Number of mines (1-24, default 3)")
-async def mines_start(interaction: discord.Interaction, bet: str, mines: int = 3):
-    await interaction.response.send_message(start_mines(did(interaction.user.id), bet, str(mines)))
-
+@bot.tree.command(name="mines", description="Play mines")
+@app_commands.describe(
+    action="start, dig, or cashout",
+    bet="Bet for start, or tile number for dig",
+    mines="Number of mines when starting",
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="start", value="start"),
+    app_commands.Choice(name="dig", value="dig"),
+    app_commands.Choice(name="cashout", value="cashout"),
+])
+async def mines_slash(interaction: discord.Interaction, action: app_commands.Choice[str], bet: str = "", mines: int = 3):
+    user_id = did(interaction.user.id)
+    if action.value == "cashout":
+        await interaction.response.send_message(cashout_mines(user_id))
+        return
+    if action.value == "dig":
+        await interaction.response.send_message(dig_mines(user_id, bet or "0"))
+        return
+    await interaction.response.send_message(start_mines(user_id, bet or "0", str(mines)))

@@ -29,10 +29,18 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.7"
+BOT_VERSION = "1.22.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.8",
+        "date": "2026-11-15",
+        "changes": [
+            "Fixed syncroles and added level commands to the menu",
+            "Added slash cds, trt, mines actions, and blackjack actions",
+        ],
+    },
     {
         "version": "1.22.7",
         "date": "2026-11-15",
@@ -1863,6 +1871,13 @@ INFO
   .profile
   .updateinfo
   .versions
+
+LEVELS
+  .rank
+  .ranklb
+  .levelroles
+  .setlevelrole
+  .syncroles
 
 ECONOMY
   .bal
@@ -4952,8 +4967,8 @@ async def _sync_roles_for(member: discord.Member):
         except discord.HTTPException as e:
             blocked.append(f"{role.name} ({e.status})")
     if not given and not blocked and not gone:
-        return "✅ You already have every role reward you've earned."
-    parts = []
+        return f"You are level {current_level}.\nAll roles are active"
+    parts = [f"You are level {current_level}."]
     if given:
         parts.append(f"🏅 Given: {', '.join(given)}")
     if blocked:
