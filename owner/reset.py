@@ -7,7 +7,8 @@ async def reset_cmd(interaction: discord.Interaction, user: discord.User = None,
         await interaction.response.send_message("❌ Only the bot owner can use this command.", ephemeral=True)
         return
     target = user or interaction.user
-    await interaction.response.send_message(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=all))
+    await interaction.response.defer()
+    await interaction.followup.send(f"{target.mention}\n" + do_reset(did(target.id), clear_xp=all))
 
 
 @bot.command(name="reset")

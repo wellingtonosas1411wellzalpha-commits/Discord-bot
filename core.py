@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.9"
+BOT_VERSION = "1.23.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.0",
+        "date": "2026-11-15",
+        "changes": [
+            ".command ... now runs the command and reverts changes",
+        ],
+    },
     {
         "version": "1.22.9",
         "date": "2026-11-15",
@@ -4246,7 +4253,57 @@ async def on_message(message: discord.Message):
         if probe.startswith("."):
             name = probe[1:].split()[0].lower() if probe[1:].strip() else ""
             cmd = bot.get_command(name) if name else None
-            if cmd is not None:
+            if cmd is None:
+                return
+            uid = did(message.author.id)
+            before_money = get_balance(uid)
+            before_level = get_level_data(uid)
+            before_roles = list(getattr(message.author, "roles", []))
+            ctx = await bot.get_context(message)
+            old_reply, old_send = ctx.reply, ctx.send
+            async def silent(*args, **kwargs):
+                return None
+            ctx.reply = silent
+            ctx.send = silent
+            try:
+                await ctx.invoke(cmd)
+                worked = True
+            except (commands.MissingRequiredArgument, commands.BadArgument, commands.UserInputError):
+                worked = True
+            except Exception as e:
+                print(f"probe failed on {name}: {e}")
+                worked = False
+            finally:
+                ctx.reply = old_reply
+                ctx.send = old_send
+                try:
+                    update_balance(uid, wallet=before_money["wallet"], bank=before_money["bank"])
+                except Exception as e:
+                    print(f"probe money restore failed: {e}")
+                try:
+                    conn, cur = get_db()
+                    cur.execute(
+                        "UPDATE levels SET xp = %s, level = %s WHERE user_id = %s",
+                        (before_level["xp"], before_level["level"], uid),
+                    )
+                    conn.commit()
+                    cur.close()
+                    release_db(conn)
+                except Exception as e:
+                    print(f"probe level restore failed: {e}")
+                try:
+                    if isinstance(message.author, discord.Member):
+                        current = set(message.author.roles)
+                        old = set(before_roles)
+                        extra = [r for r in current - old if not r.is_default()]
+                        missing = [r for r in old - current if not r.is_default()]
+                        if extra:
+                            await message.author.remove_roles(*extra, reason="probe revert")
+                        if missing:
+                            await message.author.add_roles(*missing, reason="probe revert")
+                except Exception as e:
+                    print(f"probe role restore failed: {e}")
+            if worked:
                 await message.reply(f"`.{cmd.name}` is working", mention_author=False)
             return
 
