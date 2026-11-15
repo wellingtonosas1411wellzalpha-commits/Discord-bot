@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.22.5"
+BOT_VERSION = "1.22.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.22.6",
+        "date": "2026-11-15",
+        "changes": [
+            "Removed .fake",
+        ],
+    },
     {
         "version": "1.22.5",
         "date": "2026-11-14",
@@ -1787,7 +1794,6 @@ COMMAND_HELP = {
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
-    "fake": "Test command. The bot says real.\nUsage: `.fake`",
     "react": "[Admin] React to a message, then delete the command.\nUsage: reply with `.react 15` or `/react` with a message link`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "antibadword": "[Admin] Filter a word.\nUsage: `.antibadword add word` / `.antibadword on` / `.antibadword mode warn`",
@@ -1916,7 +1922,6 @@ UTILITY
   .ncm
   .menu
   .repo
-  .fake
 
 ADMIN
   .give
