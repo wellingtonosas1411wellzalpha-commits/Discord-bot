@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.2"
+BOT_VERSION = "1.23.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.3",
+        "date": "2026-11-16",
+        "changes": [
+            "Telegram now has the shared Xephon commands",
+        ],
+    },
     {
         "version": "1.23.2",
         "date": "2026-11-16",
