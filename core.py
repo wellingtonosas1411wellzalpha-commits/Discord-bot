@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.0"
+BOT_VERSION = "1.23.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.1",
+        "date": "2026-11-16",
+        "changes": [
+            ".command ... now answers for every command",
+        ],
+    },
     {
         "version": "1.23.0",
         "date": "2026-11-15",
@@ -4259,23 +4266,23 @@ async def on_message(message: discord.Message):
             before_money = get_balance(uid)
             before_level = get_level_data(uid)
             before_roles = list(getattr(message.author, "roles", []))
+            old_content = message.content
+            message.content = probe
             ctx = await bot.get_context(message)
+            message.content = old_content
             old_reply, old_send = ctx.reply, ctx.send
             async def silent(*args, **kwargs):
                 return None
             ctx.reply = silent
             ctx.send = silent
             try:
-                await ctx.invoke(cmd)
-                worked = True
-            except (commands.MissingRequiredArgument, commands.BadArgument, commands.UserInputError):
-                worked = True
+                await bot.invoke(ctx)
             except Exception as e:
                 print(f"probe failed on {name}: {e}")
-                worked = False
             finally:
                 ctx.reply = old_reply
                 ctx.send = old_send
+                message.content = old_content
                 try:
                     update_balance(uid, wallet=before_money["wallet"], bank=before_money["bank"])
                 except Exception as e:
@@ -4303,8 +4310,7 @@ async def on_message(message: discord.Message):
                             await message.author.add_roles(*missing, reason="probe revert")
                 except Exception as e:
                     print(f"probe role restore failed: {e}")
-            if worked:
-                await message.reply(f"`.{cmd.name}` is working", mention_author=False)
+            await message.reply(f"`.{cmd.name}` is working", mention_author=False)
             return
 
     await bot.process_commands(message)
