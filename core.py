@@ -29,10 +29,17 @@ def did(discord_id) -> str:
     return f"discord:{discord_id}"
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.1"
+BOT_VERSION = "1.23.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.2",
+        "date": "2026-11-16",
+        "changes": [
+            "Added Telegram door for .ping and .bal",
+        ],
+    },
     {
         "version": "1.23.1",
         "date": "2026-11-16",
@@ -4317,6 +4324,10 @@ async def on_message(message: discord.Message):
 
 def start():
         print("Xephon bot starting")
+        import threading
+        import telegram_door
+        threading.Thread(target=telegram_door.run, daemon=True).start()
+
         if not TOKEN:
             raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")
         if not DATABASE_URL:
