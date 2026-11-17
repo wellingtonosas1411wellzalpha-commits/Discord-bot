@@ -175,6 +175,15 @@ def handle(token, text, chat_id, user_id, name):
     if cmd in DISCORD_ONLY:
         send(token, chat_id, f".{cmd} is Discord only.")
         return
+    session = get_kiragpt_session(uid)
+    raw = (text or "").strip()
+    if session.get("active") and not raw.startswith(".") and not raw.startswith("/"):
+        reply = run_async(generate_code_response(raw, mode=session.get("mode", "normal"), history=session.get("history")))
+        session.setdefault("history", []).append({"role": "user", "content": raw[:1500]})
+        session["history"].append({"role": "assistant", "content": reply[:1500]})
+        session["history"] = session["history"][-20:]
+        send(token, chat_id, reply)
+        return
     if cmd in ("start", "help", "menu"):
         send(token, chat_id, menu_text()); return
     if cmd == "link":
@@ -193,7 +202,7 @@ def handle(token, text, chat_id, user_id, name):
         session = get_kiragpt_session(uid)
         if args and args[0].lower() == "on":
             session["active"] = True
-            send(token, chat_id, "XephonGPT on. Send .xephongpt <message>")
+            send(token, chat_id, "XephonGPT on. Just type normally.")
             return
         if args and args[0].lower() == "off":
             session["active"] = False
