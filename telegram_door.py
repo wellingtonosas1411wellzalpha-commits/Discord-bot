@@ -21,8 +21,20 @@ def tg(token, method, **params):
     with urllib.request.urlopen(req, timeout=40) as resp:
         return json.loads(resp.read().decode())
 
+def clean_box(text):
+    lines = []
+    for line in str(text).splitlines():
+        if line.endswith(" |"):
+            line = line[:-2].rstrip()
+        elif line.endswith("|") and line.startswith("|"):
+            line = line[:-1].rstrip()
+        if line.startswith("+") and line.endswith("+"):
+            line = line[:-1]
+        lines.append(line)
+    return "\n".join(lines)
+
 def send(token, chat_id, text):
-    text = str(text)[:4000]
+    text = clean_box(str(text))[:4000]
     params = {"chat_id": chat_id, "text": text}
     if "```" in text:
         params["parse_mode"] = "Markdown"

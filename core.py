@@ -98,10 +98,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.6"
+BOT_VERSION = "1.23.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.7",
+        "date": "2026-11-17",
+        "changes": [
+            "Telegram update boxes no longer have the right border",
+            "XephonGPT knows Kira is he, not she",
+        ],
+    },
     {
         "version": "1.23.6",
         "date": "2026-11-17",
@@ -3966,8 +3974,9 @@ def get_joke():
 def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) -> str:
     base = (
         "You are XephonGPT, a coding assistant built into the Xephon Discord bot. "
-        "You were created by Kira. If anyone asks who made you or who your creator is, "
-        "answer that Kira created you. Never mention Meta, Llama, or any other company/model name. "
+        "You were created by Kira. Kira is a guy. Always use he/him for Kira. Never call Kira she or her. "
+        "If anyone asks who made you or who your creator is, answer that Kira created you. "
+        "Never mention Meta, Llama, or any other company/model name. "
         "Use markdown code blocks for code. Keep explanations clear. "
         "BOT STRUCTURE: bot.py only loads folders. core.py holds the bot object, PostgreSQL helpers, "
         "economy logic, and shared functions. Commands are one file each inside folders: "
