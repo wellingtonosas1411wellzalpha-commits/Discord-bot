@@ -22,7 +22,11 @@ def tg(token, method, **params):
         return json.loads(resp.read().decode())
 
 def send(token, chat_id, text):
-    tg(token, "sendMessage", chat_id=chat_id, text=str(text)[:4000])
+    text = str(text)[:4000]
+    params = {"chat_id": chat_id, "text": text}
+    if "```" in text:
+        params["parse_mode"] = "Markdown"
+    tg(token, "sendMessage", **params)
 
 def run_async(coro):
     return asyncio.run(coro)
@@ -141,7 +145,7 @@ def profile_text(uid, name):
         + build_inventory_text(name, uid)
     )
 
-def handle(token, text, chat_id, user_id, name):
+def handle(token, text, chat_id, user_id, name, replied_to_bot=False):
     from core import (
         tid, canonical_user, claim_link_code, build_balance_text, get_balance,
         do_daily, do_work, do_fish, do_beg, do_dig, do_withdraw, do_deposit,
@@ -177,7 +181,7 @@ def handle(token, text, chat_id, user_id, name):
         return
     session = get_kiragpt_session(uid)
     raw = (text or "").strip()
-    if session.get("active") and not raw.startswith(".") and not raw.startswith("/"):
+    if replied_to_bot and not raw.startswith(".") and not raw.startswith("/"):
         reply = run_async(generate_code_response(raw, mode=session.get("mode", "normal"), history=session.get("history")))
         session.setdefault("history", []).append({"role": "user", "content": raw[:1500]})
         session["history"].append({"role": "assistant", "content": reply[:1500]})
@@ -413,7 +417,9 @@ def run():
                 chat = msg.get("chat") or {}
                 user = msg.get("from") or {}
                 if text and chat.get("id") and user.get("id"):
-                    handle(token, text, chat["id"], user["id"], user.get("first_name") or "You")
+                    replied = msg.get("reply_to_message") or {}
+                    replied_to_bot = bool((replied.get("from") or {}).get("is_bot"))
+                    handle(token, text, chat["id"], user["id"], user.get("first_name") or "You", replied_to_bot)
         except Exception as e:
             print(f"Telegram door error: {e}")
             time.sleep(3)
