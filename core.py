@@ -28,11 +28,88 @@ def did(discord_id) -> str:
     """Namespaced key for a Discord user's balance."""
     return f"discord:{discord_id}"
 
+def tid(telegram_id) -> str:
+    return f"telegram:{telegram_id}"
+
+def load_links() -> dict:
+    raw = get_meta("account_links")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+def save_links(links: dict):
+    set_meta("account_links", json.dumps(links))
+
+def canonical_user(user_id: str) -> str:
+    return load_links().get(user_id, user_id)
+
+def make_link_code(discord_user_id: str) -> str:
+    import random
+    code = f"{random.randint(100000, 999999)}"
+    raw = get_meta("link_codes") or "{}"
+    try:
+        codes = json.loads(raw)
+    except Exception:
+        codes = {}
+    codes[code] = discord_user_id
+    set_meta("link_codes", json.dumps(codes))
+    return code
+
+def claim_link_code(code: str, telegram_user_id: str):
+    raw = get_meta("link_codes") or "{}"
+    try:
+        codes = json.loads(raw)
+    except Exception:
+        codes = {}
+    discord_user_id = codes.get(str(code))
+    if not discord_user_id:
+        return None
+    codes.pop(str(code), None)
+    set_meta("link_codes", json.dumps(codes))
+    links = load_links()
+    links[telegram_user_id] = discord_user_id
+    links[discord_user_id] = telegram_user_id
+    save_links(links)
+    try:
+        tg_bal = get_balance(telegram_user_id)
+        dc_bal = get_balance(discord_user_id)
+        update_balance(
+            discord_user_id,
+            wallet=dc_bal["wallet"] + tg_bal["wallet"],
+            bank=dc_bal["bank"] + tg_bal["bank"],
+        )
+        update_balance(telegram_user_id, wallet=0, bank=0)
+        tg_level = get_level_data(telegram_user_id)
+        dc_level = get_level_data(discord_user_id)
+        if tg_level["xp"] > dc_level["xp"]:
+            conn, cur = get_db()
+            cur.execute(
+                "UPDATE levels SET xp = %s, level = %s WHERE user_id = %s",
+                (tg_level["xp"], tg_level["level"], discord_user_id),
+            )
+            conn.commit()
+            cur.close()
+            release_db(conn)
+    except Exception as e:
+        print(f"link merge failed: {e}")
+    return discord_user_id
+
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.3"
+BOT_VERSION = "1.23.4"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.4",
+        "date": "2026-11-17",
+        "changes": [
+            "Telegram has the shared command list",
+            "Added .link so Discord and Telegram share money and stats",
+        ],
+    },
     {
         "version": "1.23.3",
         "date": "2026-11-16",
@@ -815,7 +892,7 @@ COMMAND_CATEGORY = {
     "cf": "gambling", "roulette": "gambling", "mines": "gambling", "blackjack": "gambling",
     "slot": "gambling", "roll": "gambling",
     "afk": "utility", "cds": "utility", "help": "utility", "ncm": "utility", "menu": "utility",
-    "repo": "utility", "antidelete": "utility", "antibadword": "admin",
+    "repo": "utility", "link": "utility", "antidelete": "utility", "antibadword": "admin",
     "rank": "levels", "ranklb": "levels", "setlevelrole": "levels", "levelroles": "levels", "syncroles": "levels",
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
@@ -1844,6 +1921,7 @@ COMMAND_HELP = {
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
+    "link": "Link Discord and Telegram so they share money and stats.\nUsage: `.link`",
     "react": "[Admin] React to a message, then delete the command.\nUsage: reply with `.react 15` or `/react` with a message link`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "antibadword": "[Admin] Filter a word.\nUsage: `.antibadword add word` / `.antibadword on` / `.antibadword mode warn`",
@@ -1979,6 +2057,7 @@ UTILITY
   .ncm
   .menu
   .repo
+  .link
 
 ADMIN
   .give
