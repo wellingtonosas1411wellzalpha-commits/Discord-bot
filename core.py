@@ -31,6 +31,10 @@ def did(discord_id) -> str:
 def tid(telegram_id) -> str:
     return f"telegram:{telegram_id}"
 
+def wid(phone: str) -> str:
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    return f"whatsapp:{digits}"
+
 def load_links() -> dict:
     raw = get_meta("account_links")
     if not raw:
@@ -98,10 +102,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.23.7"
+BOT_VERSION = "1.23.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.23.8",
+        "date": "2026-11-17",
+        "changes": [
+            "Added WhatsApp door with phone-number pairing",
+            ".link now works for WhatsApp too",
+        ],
+    },
     {
         "version": "1.23.7",
         "date": "2026-11-17",
@@ -4436,7 +4448,9 @@ def start():
         print("Xephon bot starting")
         import threading
         import telegram_door
+        import whatsapp_door
         threading.Thread(target=telegram_door.run, daemon=True).start()
+        threading.Thread(target=whatsapp_door.run, daemon=True).start()
 
         if not TOKEN:
             raise RuntimeError("DISCORD_TOKEN not found. Set it in your .env file.")

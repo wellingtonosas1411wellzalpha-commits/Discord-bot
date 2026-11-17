@@ -1,0 +1,8 @@
+{
+  "name": "xephon-whatsapp",
+  "private": true,
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "pino": "^9.0.0"
+  }
+}
