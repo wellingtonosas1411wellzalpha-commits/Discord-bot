@@ -1,7 +1,6 @@
 import json
 import os
 import subprocess
-import threading
 import time
 
 def send_line(proc, payload):
@@ -10,6 +9,54 @@ def send_line(proc, payload):
         proc.stdin.flush()
     except Exception as e:
         print(f"WhatsApp send failed: {e}")
+
+def announce_code(code):
+    print(f"WHATSAPP PAIR CODE: {code}")
+    try:
+        import asyncio
+        from core import bot
+        import discord
+
+        async def go():
+            await bot.wait_until_ready()
+            app = await bot.application_info()
+            owner = app.owner
+            text = (
+                f"{owner.mention} WhatsApp pairing code: `{code}`\n"
+                "On the phone: WhatsApp → Linked devices → Link with phone number → enter this code."
+            )
+            sent = False
+            for guild in bot.guilds:
+                member = guild.get_member(owner.id)
+                channel = discord.utils.get(guild.text_channels, name="general") or guild.system_channel
+                if channel is None:
+                    continue
+                try:
+                    await channel.send(text, allowed_mentions=discord.AllowedMentions(users=True))
+                    sent = True
+                    break
+                except Exception as e:
+                    print(f"WhatsApp code channel send failed: {e}")
+            if not sent:
+                try:
+                    await owner.send(f"WhatsApp pairing code: {code}")
+                except Exception as e:
+                    print(f"WhatsApp code DM failed: {e}")
+
+        bot.loop.create_task(go()) if bot.loop and bot.loop.is_running() else None
+        if not (bot.loop and bot.loop.is_running()):
+            import threading
+            def later():
+                for _ in range(30):
+                    if getattr(bot, "loop", None) and bot.loop.is_running():
+                        asyncio.run_coroutine_threadsafe(go(), bot.loop)
+                        return
+                    time.sleep(2)
+            threading.Thread(target=later, daemon=True).start()
+        else:
+            asyncio.run_coroutine_threadsafe(go(), bot.loop)
+    except Exception as e:
+        print(f"Could not announce WhatsApp code: {e}")
 
 def handle_text(text, phone, name):
     from core import wid, canonical_user, claim_link_code, build_balance_text, get_balance
@@ -72,7 +119,7 @@ def run():
                     continue
                 kind = data.get("type")
                 if kind == "code":
-                    print(f"WHATSAPP PAIR CODE: {data.get('code')}")
+                    announce_code(data.get("code"))
                 elif kind == "message":
                     reply = handle_text(data.get("text", ""), data.get("from", ""), data.get("name") or "You")
                     send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply})
