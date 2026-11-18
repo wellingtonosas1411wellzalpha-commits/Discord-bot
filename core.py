@@ -102,10 +102,17 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.24.0"
+BOT_VERSION = "1.24.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.24.1",
+        "date": "2026-11-18",
+        "changes": [
+            "Added .pair to make a fresh WhatsApp code when you ask",
+        ],
+    },
     {
         "version": "1.24.0",
         "date": "2026-11-18",
@@ -947,7 +954,7 @@ COMMAND_CATEGORY = {
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
     "storage": "admin", "restart": "admin", "stats": "owner", "activity": "owner",
-    "clearcache": "admin", "reset": "owner", "ptag": "owner", "checkall": "owner", "auth": "owner",
+    "clearcache": "admin", "reset": "owner", "ptag": "owner", "checkall": "owner", "pair": "owner", "auth": "owner",
     "xephongpt": "xephongpt", "test": "tester",
 }
 
@@ -2132,6 +2139,7 @@ OWNER
   .reset
   .ptag
   .checkall
+  .pair
 
 TESTER
   .test on

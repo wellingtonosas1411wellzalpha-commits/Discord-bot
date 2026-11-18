@@ -1,8 +1,6 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys")
+const { default: makeWASocket, useMultiFileAuthState } = require("@whiskeysockets/baileys")
 const pino = require("pino")
 const readline = require("readline")
-
-const phone = (process.env.WHATSAPP_PHONE || "").replace(/\D/g, "")
 
 function out(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n")
@@ -17,10 +15,6 @@ async function start() {
     browser: ["Xephon", "Chrome", "1.0.0"],
   })
   sock.ev.on("creds.update", saveCreds)
-  if (!state.creds.registered) {
-    const code = await sock.requestPairingCode(phone)
-    out({ type: "code", code })
-  }
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue
@@ -42,7 +36,13 @@ async function start() {
       if (data.type === "send" && data.chat && data.text) {
         await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
       }
-    } catch (e) {}
+      if (data.type === "pair" && data.phone) {
+        const code = await sock.requestPairingCode(String(data.phone).replace(/\D/g, ""))
+        out({ type: "code", code, id: data.id || "" })
+      }
+    } catch (e) {
+      out({ type: "error", error: String(e), id: "" })
+    }
   })
   sock.ev.on("connection.update", (update) => {
     if (update.connection === "open") out({ type: "ready" })
