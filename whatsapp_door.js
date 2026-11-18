@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, Browsers } = require("@whiskeysockets/baileys")
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require("@whiskeysockets/baileys")
 const pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
@@ -8,9 +8,10 @@ function out(obj) {
 }
 
 let sock = null
+let starting = false
 
-async function resetAuth() {
-  fs.rmSync("./wa_auth", { recursive: true, force: true })
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function openSocket() {
@@ -20,6 +21,8 @@ async function openSocket() {
     printQRInTerminal: false,
     logger: pino({ level: "silent" }),
     browser: Browsers.ubuntu("Chrome"),
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
   })
   sock.ev.on("creds.update", saveCreds)
   sock.ev.on("messages.upsert", async ({ messages }) => {
@@ -36,15 +39,20 @@ async function openSocket() {
       })
     }
   })
-  sock.ev.on("connection.update", (update) => {
+  sock.ev.on("connection.update", async (update) => {
     if (update.connection === "open") out({ type: "ready" })
-    if (update.connection === "close") out({ type: "closed" })
+    if (update.connection === "close") {
+      const code = update.lastDisconnect?.error?.output?.statusCode
+      out({ type: "closed", code })
+      if (code !== DisconnectReason.loggedOut && !starting) {
+        starting = true
+        await sleep(2000)
+        try { await openSocket() } catch (e) { out({ type: "error", error: String(e) }) }
+        starting = false
+      }
+    }
   })
   return sock
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function start() {
@@ -60,9 +68,9 @@ async function start() {
         const phone = String(data.phone).replace(/\D/g, "")
         if (!sock?.authState?.creds?.registered) {
           try { sock?.end?.() } catch (e) {}
-          await resetAuth()
+          fs.rmSync("./wa_auth", { recursive: true, force: true })
           sock = await openSocket()
-          await sleep(4000)
+          await sleep(5000)
         }
         const raw = await sock.requestPairingCode(phone)
         const clean = String(raw).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
@@ -70,7 +78,7 @@ async function start() {
         out({ type: "code", code: shown, id: data.id || "" })
       }
     } catch (e) {
-      out({ type: "error", error: String(e), id: (typeof data !== "undefined" && data.id) || "" })
+      out({ type: "error", error: String(e), id: "" })
     }
   })
 }
