@@ -119,11 +119,14 @@ def run():
                     continue
                 kind = data.get("type")
                 if kind == "code":
-                    announce_code(data.get("code"))
+                    code = data.get("code")
+                    if code and code != getattr(run, "last_code", None):
+                        run.last_code = code
+                        announce_code(code)
                 elif kind == "message":
                     reply = handle_text(data.get("text", ""), data.get("from", ""), data.get("name") or "You")
                     send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply})
             proc.wait()
         except Exception as e:
             print(f"WhatsApp door error: {e}")
-        time.sleep(5)
+        time.sleep(30)

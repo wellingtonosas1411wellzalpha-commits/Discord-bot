@@ -45,10 +45,8 @@ async function start() {
     } catch (e) {}
   })
   sock.ev.on("connection.update", (update) => {
-    if (update.connection === "close") {
-      const code = update.lastDisconnect?.error?.output?.statusCode
-      if (code !== DisconnectReason.loggedOut) start()
-    }
+    if (update.connection === "open") out({ type: "ready" })
+    if (update.connection === "close") out({ type: "closed" })
   })
 }
 

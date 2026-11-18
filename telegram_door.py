@@ -193,7 +193,7 @@ def handle(token, text, chat_id, user_id, name, replied_to_bot=False):
         return
     session = get_kiragpt_session(uid)
     raw = (text or "").strip()
-    if replied_to_bot and not raw.startswith(".") and not raw.startswith("/"):
+    if session.get("active") and replied_to_bot and not raw.startswith(".") and not raw.startswith("/"):
         reply = run_async(generate_code_response(raw, mode=session.get("mode", "normal"), history=session.get("history")))
         session.setdefault("history", []).append({"role": "user", "content": raw[:1500]})
         session["history"].append({"role": "assistant", "content": reply[:1500]})
