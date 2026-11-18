@@ -9,9 +9,9 @@ async def pair_slash(interaction: discord.Interaction, phone: str):
         return
     digits = "".join(ch for ch in phone if ch.isdigit())
     await interaction.response.defer()
-    code = await asyncio.to_thread(request_pair, digits)
+    code, err = await asyncio.to_thread(request_pair, digits)
     if not code:
-        await interaction.followup.send("Could not make a code. Wait a few seconds and try again.")
+        await interaction.followup.send(f"Could not make a code.\n{err or 'No reply from WhatsApp door.'}")
         return
     await interaction.followup.send(
         f"{interaction.user.mention} Pairing code: `{code}`\n"
@@ -24,9 +24,9 @@ async def pair_slash(interaction: discord.Interaction, phone: str):
 async def pair_prefix(ctx: commands.Context, phone: str):
     digits = "".join(ch for ch in phone if ch.isdigit())
     await ctx.reply("Making a fresh code...", mention_author=False)
-    code = await asyncio.to_thread(request_pair, digits)
+    code, err = await asyncio.to_thread(request_pair, digits)
     if not code:
-        await ctx.reply("Could not make a code. Wait a few seconds and try again.")
+        await ctx.reply(f"Could not make a code.\n{err or 'No reply from WhatsApp door.'}")
         return
     await ctx.reply(
         f"{ctx.author.mention} Pairing code: `{code}`\n"

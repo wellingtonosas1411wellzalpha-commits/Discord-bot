@@ -70,7 +70,7 @@ async function start() {
         out({ type: "code", code: shown, id: data.id || "" })
       }
     } catch (e) {
-      out({ type: "error", error: String(e), id: "" })
+      out({ type: "error", error: String(e), id: (typeof data !== "undefined" && data.id) || "" })
     }
   })
 }
