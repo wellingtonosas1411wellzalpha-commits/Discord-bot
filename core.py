@@ -102,10 +102,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.24.5"
+BOT_VERSION = "1.24.6"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.24.6",
+        "date": "2026-11-19",
+        "changes": [
+            "Removed Telegram",
+            ".link and .pair are WhatsApp only",
+        ],
+    },
     {
         "version": "1.24.5",
         "date": "2026-11-19",
@@ -2007,7 +2015,7 @@ COMMAND_HELP = {
     "help": "Show info for one command.\nUsage: `.help <command>`",
     "ncm": "No Command Mode. Talk normally and Xephon runs the matching command.\nUsage: `.ncm on` / `.ncm off`",
     "repo": "Show the GitHub repository.\nUsage: `.repo`",
-    "link": "Link Discord and Telegram so they share money and stats.\nUsage: `.link`",
+    "link": "Link Discord and WhatsApp so they share money and stats.\nUsage: `.link`",
     "react": "[Admin] React to a message, then delete the command.\nUsage: reply with `.react 15` or `/react` with a message link`",
     "delete": "[Manage Messages] Delete the message you replied to.\nUsage: reply with `.delete`",
     "antibadword": "[Admin] Filter a word.\nUsage: `.antibadword add word` / `.antibadword on` / `.antibadword mode warn`",
@@ -4499,9 +4507,7 @@ async def on_message(message: discord.Message):
 def start():
         print("Xephon bot starting")
         import threading
-        import telegram_door
         import whatsapp_door
-        threading.Thread(target=telegram_door.run, daemon=True).start()
         threading.Thread(target=whatsapp_door.run, daemon=True).start()
 
         if not TOKEN:

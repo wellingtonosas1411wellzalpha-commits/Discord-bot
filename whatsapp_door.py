@@ -41,14 +41,14 @@ def handle_text(text, phone, name):
     cmd = parts[0].lower().lstrip("./")
     args = parts[1:]
     if cmd in ("start", "help", "menu"):
-        return "Xephon on WhatsApp.\n.ping\n.bal\n.link <code>\n.link on Discord first."
+        return "Xephon on WhatsApp.\n.ping\n.bal\n.link <code>\nRun .link on Discord first."
     if cmd == "link":
         if not args:
             return f"Your WhatsApp number: {phone}\nOn Discord, run .link\nThen send .link <code> here."
         linked = claim_link_code(args[0], raw_uid)
         if not linked:
             return "That code is not valid. Run .link on Discord first."
-        return "Linked. Discord, Telegram, and WhatsApp now share money and stats."
+        return "Linked. Discord and WhatsApp now share money and stats."
     if cmd == "ping":
         return "Pong"
     if cmd == "bal":
