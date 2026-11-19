@@ -102,10 +102,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.24.4"
+BOT_VERSION = "1.24.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.24.5",
+        "date": "2026-11-19",
+        "changes": [
+            ".link now works for WhatsApp too",
+            "WhatsApp login is saved so restart does not need .pair",
+        ],
+    },
     {
         "version": "1.24.4",
         "date": "2026-11-18",

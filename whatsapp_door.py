@@ -56,8 +56,41 @@ def handle_text(text, phone, name):
         return build_balance_text(uid)
     return "Try .ping, .bal, or .link"
 
+def load_saved_auth(here):
+    try:
+        from core import get_meta
+        raw = get_meta("wa_auth_zip")
+        if not raw:
+            return
+        import base64, io, zipfile
+        folder = os.path.join(here, "wa_auth")
+        os.makedirs(folder, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(raw))) as z:
+            z.extractall(folder)
+        print("WhatsApp login restored")
+    except Exception as e:
+        print(f"Could not restore WhatsApp login: {e}")
+
+def save_auth(here):
+    folder = os.path.join(here, "wa_auth")
+    if not os.path.isdir(folder):
+        return
+    try:
+        import base64, io, zipfile
+        from core import set_meta
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for root, dirs, files in os.walk(folder):
+                for name in files:
+                    path = os.path.join(root, name)
+                    z.write(path, os.path.relpath(path, folder))
+        set_meta("wa_auth_zip", base64.b64encode(buf.getvalue()).decode())
+    except Exception as e:
+        print(f"Could not save WhatsApp login: {e}")
+
 def run():
     here = os.path.dirname(os.path.abspath(__file__))
+    load_saved_auth(here)
     js = os.path.join(here, "whatsapp_door.js")
     if not os.path.exists(js):
         print("WhatsApp door off: missing whatsapp_door.js")
@@ -92,6 +125,8 @@ def run():
                     print(f"WhatsApp: {line}")
                     continue
                 kind = data.get("type")
+                if kind in ("code", "ready"):
+                    save_auth(here)
                 if kind == "code":
                     waiter = WAITERS.get(data.get("id"))
                     if waiter:
