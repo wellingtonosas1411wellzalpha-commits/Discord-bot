@@ -106,7 +106,7 @@ def menu_text():
 .link <code>
 
 .delete
-.react [emoji]
+.react <any emoji>
 .poll question | option | option
 .ptag <message>
 
@@ -331,10 +331,12 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "react":
         if not info.get("quoted"):
             return "Reply to the message you want to react to."
-        emoji = args[0] if args else "👍"
-        if emoji.isdigit():
-            emoji = "👍"
-        return {"type": "react", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "emoji": emoji, "text": "Reacted."}
+        custom = [part for part in args if not part.isdigit()]
+        emoji = custom[-1] if custom else "👍"
+        note = "Reacted."
+        if len(custom) > 1:
+            note = "WhatsApp keeps only one reaction, so the last emoji was used."
+        return {"type": "react", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "emoji": emoji, "text": note}
     if cmd == "poll":
         body = " ".join(args)
         bits = [part.strip() for part in body.split("|") if part.strip()]
