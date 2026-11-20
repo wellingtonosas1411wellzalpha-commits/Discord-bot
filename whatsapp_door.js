@@ -8,7 +8,7 @@ function out(obj) {
 }
 
 let sock = null
-let starting = false
+let pairing = false
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -20,9 +20,10 @@ async function openSocket() {
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: "silent" }),
-    browser: Browsers.ubuntu("Chrome"),
+    browser: Browsers.macOS("Desktop"),
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    connectTimeoutMs: 20000,
   })
   sock.ev.on("creds.update", saveCreds)
   sock.ev.on("messages.upsert", async ({ messages }) => {
@@ -45,26 +46,40 @@ async function openSocket() {
   })
   sock.ev.on("connection.update", async (update) => {
     if (update.connection === "open") out({ type: "ready" })
-    if (update.connection === "close") {
+    if (update.connection === "close" && !pairing) {
       const code = update.lastDisconnect?.error?.output?.statusCode
       out({ type: "closed", code })
-      if (code !== DisconnectReason.loggedOut && !starting) {
-        starting = true
-        await sleep(2000)
+      if (code !== DisconnectReason.loggedOut) {
+        await sleep(3000)
         try { await openSocket() } catch (e) { out({ type: "error", error: String(e) }) }
-        starting = false
       }
     }
   })
   return sock
 }
 
+async function freshPairSocket() {
+  pairing = true
+  try { sock?.end?.() } catch (e) {}
+  fs.rmSync("./wa_auth", { recursive: true, force: true })
+  const next = await openSocket()
+  await sleep(1500)
+  return next
+}
+
+async function makeCode(phone) {
+  const current = await freshPairSocket()
+  const raw = await current.requestPairingCode(phone)
+  return String(raw).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+}
+
 async function start() {
   await openSocket()
   const rl = readline.createInterface({ input: process.stdin })
   rl.on("line", async (line) => {
+    let data = {}
     try {
-      const data = JSON.parse(line)
+      data = JSON.parse(line)
       if (data.type === "send" && data.chat && data.text && sock) {
         await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
       }
@@ -85,27 +100,25 @@ async function start() {
       }
       if (data.type === "pair" && data.phone) {
         const phone = String(data.phone).replace(/\D/g, "")
-        const id = data.id || ""
-        if (!sock?.authState?.creds?.registered) {
-          try { sock?.end?.() } catch (e) {}
-          fs.rmSync("./wa_auth", { recursive: true, force: true })
-          sock = await openSocket()
+        let clean = ""
+        let lastError = null
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            clean = await makeCode(phone)
+            break
+          } catch (e) {
+            lastError = e
+            await sleep(2000)
+          }
         }
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("WhatsApp did not connect in time")), 20000)
-          const done = () => { clearTimeout(timer); resolve() }
-          sock.ev.on("connection.update", (update) => {
-            if (update.connection === "connecting" || update.qr || update.connection === "open") done()
-          })
-          setTimeout(done, 3000)
-        })
-        const raw = await sock.requestPairingCode(phone)
-        const clean = String(raw).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+        pairing = false
+        if (!clean) throw lastError || new Error("Connection Closed")
         const shown = clean.length === 8 ? clean.slice(0, 4) + "-" + clean.slice(4) : clean
-        out({ type: "code", code: shown, id })
+        out({ type: "code", code: shown, id: data.id || "" })
       }
     } catch (e) {
-      out({ type: "error", error: String(e), id: (typeof data !== "undefined" && data && data.id) || "" })
+      pairing = false
+      out({ type: "error", error: String(e.message || e), id: data.id || "" })
     }
   })
 }
