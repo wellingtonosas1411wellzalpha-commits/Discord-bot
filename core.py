@@ -102,10 +102,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.24.7"
+BOT_VERSION = "1.24.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.24.8",
+        "date": "2026-11-20",
+        "changes": [
+            "WhatsApp now has delete, react, poll, and ptag",
+            "Failed commands now show the error",
+        ],
+    },
     {
         "version": "1.24.7",
         "date": "2026-11-19",

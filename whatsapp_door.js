@@ -30,12 +30,16 @@ async function openSocket() {
       if (!msg.message || msg.key.fromMe) continue
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
       if (!text) continue
+      const quoted = msg.message.extendedTextMessage?.contextInfo || {}
       out({
         type: "message",
         from: (msg.key.participant || msg.key.remoteJid || "").split("@")[0],
         chat: msg.key.remoteJid,
         name: msg.pushName || "You",
         text,
+        quoted: quoted.stanzaId || "",
+        participant: quoted.participant || msg.key.participant || "",
+        isGroup: String(msg.key.remoteJid || "").endsWith("@g.us"),
       })
     }
   })
@@ -63,6 +67,21 @@ async function start() {
       const data = JSON.parse(line)
       if (data.type === "send" && data.chat && data.text && sock) {
         await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
+      }
+      if (data.type === "delete" && data.chat && data.msgId && sock) {
+        await sock.sendMessage(data.chat, { delete: { remoteJid: data.chat, fromMe: false, id: data.msgId, participant: data.participant || undefined } })
+      }
+      if (data.type === "react" && data.chat && data.msgId && sock) {
+        await sock.sendMessage(data.chat, { react: { text: data.emoji || "👍", key: { remoteJid: data.chat, id: data.msgId, participant: data.participant || undefined } } })
+      }
+      if (data.type === "poll" && data.chat && sock) {
+        await sock.sendMessage(data.chat, { poll: { name: data.question || "Poll", values: data.options || [], selectableCount: 1 } })
+      }
+      if (data.type === "ptag" && data.chat && sock) {
+        const meta = await sock.groupMetadata(data.chat)
+        const mentions = (meta.participants || []).map(p => p.id)
+        const tags = mentions.map(id => "@" + id.split("@")[0]).join(" ")
+        await sock.sendMessage(data.chat, { text: (data.text || "") + "\n" + tags, mentions })
       }
       if (data.type === "pair" && data.phone) {
         const phone = String(data.phone).replace(/\D/g, "")

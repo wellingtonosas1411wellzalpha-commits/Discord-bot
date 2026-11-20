@@ -35,7 +35,7 @@ def request_pair(phone: str, timeout: int = 40):
 import asyncio
 
 ROLE_ONLY = {
-    "poll", "afk", "ncm", "delete", "react", "botban", "botunban", "xban",
+    "afk", "ncm", "botban", "botunban", "xban",
     "xunban", "bans", "antidelete", "antibadword", "storage", "clearcache",
     "restart", "auth", "stats", "activity", "reset", "ptag", "checkall",
     "give", "take", "syncroles", "levelroles", "setlevelrole", "pair",
@@ -105,6 +105,11 @@ def menu_text():
 .repo
 .link <code>
 
+.delete
+.react [emoji]
+.poll question | option | option
+.ptag <message>
+
 Role commands stay on Discord.
 """
 
@@ -114,7 +119,7 @@ def safe(fn, *args):
     except Exception as e:
         return f"Command failed: {e.__class__.__name__}: {e}"
 
-def handle_text(text, phone, name):
+def handle_text(text, phone, name, meta=None):
     from core import (
         wid, canonical_user, claim_link_code, build_balance_text, get_balance,
         do_daily, do_work, do_fish, do_beg, do_dig, do_withdraw, do_deposit,
@@ -318,6 +323,28 @@ def handle_text(text, phone, name):
         return safe(do_divorce, uid)
     if cmd == "partner":
         return f"Partner: {get_partner(uid) or 'Not married'}"
+    info = meta or {}
+    if cmd == "delete":
+        if not info.get("quoted"):
+            return "Reply to the message you want to delete."
+        return {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "text": "Deleted."}
+    if cmd == "react":
+        if not info.get("quoted"):
+            return "Reply to the message you want to react to."
+        emoji = args[0] if args else "👍"
+        if emoji.isdigit():
+            emoji = "👍"
+        return {"type": "react", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "emoji": emoji, "text": "Reacted."}
+    if cmd == "poll":
+        body = " ".join(args)
+        bits = [part.strip() for part in body.split("|") if part.strip()]
+        if len(bits) < 3:
+            return "Usage: .poll question | option | option"
+        return {"type": "poll", "chat": info.get("chat"), "question": bits[0], "options": bits[1:], "text": "Poll sent."}
+    if cmd == "ptag":
+        if not info.get("isGroup"):
+            return "Use .ptag in a WhatsApp group."
+        return {"type": "ptag", "chat": info.get("chat"), "text": " ".join(args) or "Hey"}
     return "Unknown command. Send .menu"
 
 def load_saved_auth(here):
@@ -403,8 +430,22 @@ def run():
                         waiter[1]["error"] = LAST_ERROR["text"]
                         waiter[0].set()
                 elif kind == "message":
-                    reply = handle_text(data.get("text", ""), data.get("from", ""), data.get("name") or "You")
-                    send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply})
+                    try:
+                        reply = handle_text(
+                            data.get("text", ""),
+                            data.get("from", ""),
+                            data.get("name") or "You",
+                            data,
+                        )
+                    except Exception as e:
+                        reply = f"Command failed: {e.__class__.__name__}: {e}"
+                    if isinstance(reply, dict):
+                        reply.setdefault("chat", data.get("chat"))
+                        send_line(proc, reply)
+                        if reply.get("text") and reply.get("type") != "ptag":
+                            send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply.get("text")})
+                    else:
+                        send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply})
             code = proc.wait()
             LAST_ERROR["text"] = f"WhatsApp door stopped ({code})"
         except Exception as e:
