@@ -102,10 +102,17 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.24.9"
+BOT_VERSION = "1.25.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.25.0",
+        "date": "2026-11-20",
+        "changes": [
+            "High react counts now send fake reaction bursts",
+        ],
+    },
     {
         "version": "1.24.9",
         "date": "2026-11-20",

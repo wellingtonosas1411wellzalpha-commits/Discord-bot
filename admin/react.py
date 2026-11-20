@@ -35,6 +35,19 @@ async def add_reactions(message, emojis) -> int:
             break
     return added
 
+def fake_reaction_text(count: int) -> str:
+    count = max(1, min(count, 500))
+    parts = []
+    for i in range(count):
+        parts.append(REACT_EMOJIS[i % len(REACT_EMOJIS)])
+    return " ".join(parts)
+
+async def send_fake_reactions(channel, count: int):
+    text_out = fake_reaction_text(count)
+    chunk = 1800
+    for i in range(0, len(text_out), chunk):
+        await channel.send(text_out[i:i+chunk])
+
 @bot.tree.command(name="react", description="[Admin] React to a message link or ID")
 @app_commands.describe(message_link="Message link or message ID", count="How many reactions, max 20")
 async def react_slash(interaction: discord.Interaction, message_link: str, count: app_commands.Range[int, 1, 20] = 1):
@@ -52,7 +65,9 @@ async def react_slash(interaction: discord.Interaction, message_link: str, count
         await interaction.followup.send("I couldn't find that message in this channel.", ephemeral=True)
         return
     added = await add_reactions(target, pick_emojis([], count))
-    await interaction.followup.send(f"done ({added})", ephemeral=True)
+    if count > 20:
+        await send_fake_reactions(interaction.channel, count)
+    await interaction.followup.send(f"done ({count if count > 20 else added})", ephemeral=True)
 
 @bot.command(name="react")
 async def react_prefix(ctx: commands.Context, *args):
@@ -69,7 +84,9 @@ async def react_prefix(ctx: commands.Context, *args):
         return
     count = next((int(part) for part in args if part.isdigit()), 1)
     added = await add_reactions(target, pick_emojis(args, count))
+    if count > 20 and not any(not part.isdigit() for part in args):
+        await send_fake_reactions(ctx.channel, count)
     try:
         await ctx.message.delete()
     except discord.HTTPException:
-        await ctx.reply(f"done ({added})", mention_author=False)
+        await ctx.reply(f"done ({count if count > 20 else added})", mention_author=False)

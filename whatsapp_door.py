@@ -332,10 +332,19 @@ def handle_text(text, phone, name, meta=None):
         if not info.get("quoted"):
             return "Reply to the message you want to react to."
         custom = [part for part in args if not part.isdigit()]
+        count = next((int(part) for part in args if part.isdigit()), 1)
         emoji = custom[-1] if custom else "👍"
+        if count > 1 and not custom:
+            burst = " ".join((["👍", "😂", "🔥", "❤️", "🎉", "👀", "💯", "😎"] * ((count // 8) + 1))[:min(count, 500)])
+            return {"type": "send", "chat": info.get("chat"), "text": burst}
         note = "Reacted."
-        if len(custom) > 1:
-            note = "WhatsApp keeps only one reaction, so the last emoji was used."
+        if len(custom) > 1 or count > 1:
+            note = "WhatsApp keeps one real reaction. Extra ones are sent as a fake burst."
+            extra = " ".join((custom or ["👍"]) * min(count, 100))
+            return [
+                {"type": "react", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "emoji": emoji, "text": ""},
+                {"type": "send", "chat": info.get("chat"), "text": extra},
+            ]
         return {"type": "react", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "emoji": emoji, "text": note}
     if cmd == "poll":
         body = " ".join(args)
@@ -441,13 +450,15 @@ def run():
                         )
                     except Exception as e:
                         reply = f"Command failed: {e.__class__.__name__}: {e}"
-                    if isinstance(reply, dict):
-                        reply.setdefault("chat", data.get("chat"))
-                        send_line(proc, reply)
-                        if reply.get("text") and reply.get("type") != "ptag":
-                            send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply.get("text")})
-                    else:
-                        send_line(proc, {"type": "send", "chat": data.get("chat"), "text": reply})
+                    replies = reply if isinstance(reply, list) else [reply]
+                    for item in replies:
+                        if isinstance(item, dict):
+                            item.setdefault("chat", data.get("chat"))
+                            send_line(proc, item)
+                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll"):
+                                send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item.get("text")})
+                        else:
+                            send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item})
             code = proc.wait()
             LAST_ERROR["text"] = f"WhatsApp door stopped ({code})"
         except Exception as e:
