@@ -49,8 +49,8 @@ async def send_fake_reactions(channel, count: int):
         await channel.send(text_out[i:i+chunk])
 
 @bot.tree.command(name="react", description="[Admin] React to a message link or ID")
-@app_commands.describe(message_link="Message link or message ID", count="How many reactions, max 20")
-async def react_slash(interaction: discord.Interaction, message_link: str, count: app_commands.Range[int, 1, 20] = 1):
+@app_commands.describe(message_link="Message link or message ID", count="How many fake reactions, up to 500")
+async def react_slash(interaction: discord.Interaction, message_link: str, count: app_commands.Range[int, 1, 500] = 100):
     await interaction.response.defer(ephemeral=True)
     if not is_kira_creator(interaction.user):
         await interaction.followup.send("Admins only.", ephemeral=True)
@@ -64,10 +64,9 @@ async def react_slash(interaction: discord.Interaction, message_link: str, count
     except discord.NotFound:
         await interaction.followup.send("I couldn't find that message in this channel.", ephemeral=True)
         return
-    added = await add_reactions(target, pick_emojis([], count))
-    if count > 20:
-        await send_fake_reactions(interaction.channel, count)
-    await interaction.followup.send(f"done ({count if count > 20 else added})", ephemeral=True)
+    await add_reactions(target, pick_emojis([], min(count, 20)))
+    await send_fake_reactions(interaction.channel, count)
+    await interaction.followup.send(f"done ({count})", ephemeral=True)
 
 @bot.command(name="react")
 async def react_prefix(ctx: commands.Context, *args):
@@ -82,11 +81,10 @@ async def react_prefix(ctx: commands.Context, *args):
     except discord.NotFound:
         await ctx.reply("I couldn't find that message.", mention_author=False)
         return
-    count = next((int(part) for part in args if part.isdigit()), 1)
-    added = await add_reactions(target, pick_emojis(args, count))
-    if count > 20 and not any(not part.isdigit() for part in args):
-        await send_fake_reactions(ctx.channel, count)
+    count = next((int(part) for part in args if part.isdigit()), 100)
+    await add_reactions(target, pick_emojis(args, min(count, 20)))
+    await send_fake_reactions(ctx.channel, count)
     try:
         await ctx.message.delete()
     except discord.HTTPException:
-        await ctx.reply(f"done ({count if count > 20 else added})", mention_author=False)
+        await ctx.reply(f"done ({count})", mention_author=False)

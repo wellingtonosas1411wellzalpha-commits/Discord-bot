@@ -378,7 +378,7 @@ def handle_text(text, phone, name, meta=None):
         if not info.get("quoted"):
             return "Reply to the message you want to react to."
         custom = [part for part in args if not part.isdigit()]
-        count = next((int(part) for part in args if part.isdigit()), 1)
+        count = next((int(part) for part in args if part.isdigit()), 100)
         emoji = custom[-1] if custom else "👍"
         if count > 1 and not custom:
             burst = " ".join((["👍", "😂", "🔥", "❤️", "🎉", "👀", "💯", "😎"] * ((count // 8) + 1))[:min(count, 500)])
