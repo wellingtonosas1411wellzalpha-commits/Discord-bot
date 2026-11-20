@@ -85,19 +85,27 @@ async function start() {
       }
       if (data.type === "pair" && data.phone) {
         const phone = String(data.phone).replace(/\D/g, "")
+        const id = data.id || ""
         if (!sock?.authState?.creds?.registered) {
           try { sock?.end?.() } catch (e) {}
           fs.rmSync("./wa_auth", { recursive: true, force: true })
           sock = await openSocket()
-          await sleep(5000)
         }
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("WhatsApp did not connect in time")), 20000)
+          const done = () => { clearTimeout(timer); resolve() }
+          sock.ev.on("connection.update", (update) => {
+            if (update.connection === "connecting" || update.qr || update.connection === "open") done()
+          })
+          setTimeout(done, 3000)
+        })
         const raw = await sock.requestPairingCode(phone)
         const clean = String(raw).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
         const shown = clean.length === 8 ? clean.slice(0, 4) + "-" + clean.slice(4) : clean
-        out({ type: "code", code: shown, id: data.id || "" })
+        out({ type: "code", code: shown, id })
       }
     } catch (e) {
-      out({ type: "error", error: String(e), id: "" })
+      out({ type: "error", error: String(e), id: (typeof data !== "undefined" && data && data.id) || "" })
     }
   })
 }
