@@ -104,6 +104,14 @@ def menu_text():
 .versions
 .repo
 .link <code>
+.afk [reason]
+.botban <number>
+.botunban <number>
+.xban <number> <category>
+.xunban <number> <category>
+.bans
+.storage
+.reset
 
 .delete
 .react <any emoji>
@@ -134,7 +142,8 @@ def handle_text(text, phone, name, meta=None):
         build_updateinfo_text, build_version_history_text, build_achievements_text,
         build_cooldowns_text, get_treasury, get_bot_bank, propose_marriage,
         accept_marriage, do_divorce, get_partner, generate_code_response,
-        get_kiragpt_session,
+        get_kiragpt_session, set_afk, do_reset, build_storage_text,
+        bot_bans, x_bans, save_bans, BAN_CATEGORIES,
     )
     raw_uid = wid(phone)
     uid = canonical_user(raw_uid)
@@ -323,6 +332,43 @@ def handle_text(text, phone, name, meta=None):
         return safe(do_divorce, uid)
     if cmd == "partner":
         return f"Partner: {get_partner(uid) or 'Not married'}"
+    if cmd == "afk":
+        reason = " ".join(args) or "busy"
+        set_afk(uid, reason)
+        return f"You are now afk, reason: {reason}"
+    if cmd == "botban":
+        if not args:
+            return "Usage: .botban <number>"
+        bot_bans.add(wid(args[0]))
+        save_bans()
+        return "Bot banned."
+    if cmd == "botunban":
+        if not args:
+            return "Usage: .botunban <number>"
+        bot_bans.discard(wid(args[0]))
+        save_bans()
+        return "Bot unbanned."
+    if cmd == "xban":
+        if len(args) < 2:
+            return "Usage: .xban <number> <category>"
+        category = args[1].lower()
+        if category not in BAN_CATEGORIES:
+            return "Category must be one of: " + ", ".join(sorted(BAN_CATEGORIES))
+        x_bans.setdefault(wid(args[0]), set()).add(category)
+        save_bans()
+        return f"Banned from {category}."
+    if cmd == "xunban":
+        if len(args) < 2:
+            return "Usage: .xunban <number> <category>"
+        x_bans.get(wid(args[0]), set()).discard(args[1].lower())
+        save_bans()
+        return "Category unbanned."
+    if cmd == "bans":
+        return f"Bot bans: {len(bot_bans)}\nCategory bans: {len(x_bans)}"
+    if cmd == "storage":
+        return safe(build_storage_text)
+    if cmd == "reset":
+        return safe(do_reset, uid, False)
     info = meta or {}
     if cmd == "delete":
         if not info.get("quoted"):
