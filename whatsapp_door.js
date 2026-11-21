@@ -20,7 +20,7 @@ async function openSocket() {
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: "silent" }),
-    browser: Browsers.macOS("Desktop"),
+    browser: Browsers.ubuntu("Chrome"),
     markOnlineOnConnect: false,
     syncFullHistory: false,
     connectTimeoutMs: 20000,
@@ -61,14 +61,14 @@ async function openSocket() {
 async function freshPairSocket() {
   pairing = true
   try { sock?.end?.() } catch (e) {}
+  await sleep(500)
   fs.rmSync("./wa_auth", { recursive: true, force: true })
-  const next = await openSocket()
-  await sleep(1500)
-  return next
+  return await openSocket()
 }
 
 async function makeCode(phone) {
   const current = await freshPairSocket()
+  await sleep(800)
   const raw = await current.requestPairingCode(phone)
   return String(raw).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
 }

@@ -15,7 +15,7 @@ async def pair_slash(interaction: discord.Interaction, phone: str):
         return
     await interaction.followup.send(
         f"{interaction.user.mention} Pairing code: `{code}`\n"
-        "Enter it now, with the dash. It expires in about a minute.\n"
+        "Enter it now with no dash. It expires in about a minute.\n"
         "WhatsApp → Linked devices → Link a device → Link with phone number."
     )
 
@@ -30,7 +30,7 @@ async def pair_prefix(ctx: commands.Context, phone: str):
         return
     await ctx.reply(
         f"{ctx.author.mention} Pairing code: `{code}`\n"
-        "Enter it now, with the dash. It expires in about a minute.\n"
+        "Enter it now with no dash. It expires in about a minute.\n"
         "WhatsApp → Linked devices → Link a device → Link with phone number.",
         mention_author=True,
     )
