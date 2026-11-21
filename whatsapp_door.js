@@ -15,6 +15,7 @@ function sleep(ms) {
 }
 
 async function openSocket() {
+  fs.mkdirSync("./wa_auth", { recursive: true })
   const { state, saveCreds } = await useMultiFileAuthState("./wa_auth")
   sock = makeWASocket({
     auth: state,
@@ -63,6 +64,7 @@ async function freshPairSocket() {
   try { sock?.end?.() } catch (e) {}
   await sleep(500)
   fs.rmSync("./wa_auth", { recursive: true, force: true })
+  fs.mkdirSync("./wa_auth", { recursive: true })
   return await openSocket()
 }
 
@@ -91,6 +93,10 @@ async function start() {
       }
       if (data.type === "poll" && data.chat && sock) {
         await sock.sendMessage(data.chat, { poll: { name: data.question || "Poll", values: data.options || [], selectableCount: 1 } })
+      }
+      if (data.type === "image" && data.chat && sock) {
+        const buf = fs.readFileSync(data.file)
+        await sock.sendMessage(data.chat, { image: buf, caption: data.text || "" })
       }
       if (data.type === "ptag" && data.chat && sock) {
         const meta = await sock.groupMetadata(data.chat)

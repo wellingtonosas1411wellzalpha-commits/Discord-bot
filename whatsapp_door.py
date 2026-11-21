@@ -168,7 +168,11 @@ def handle_text(text, phone, name, meta=None):
     if cmd in ROLE_ONLY:
         return f".{cmd} needs Discord roles, so it stays on Discord."
     if cmd in ("start", "help", "menu"):
-        return menu_text()
+        return {
+            "type": "image",
+            "file": os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "banner.png"),
+            "text": menu_text(),
+        }
     if cmd == "link":
         if not args:
             return f"Your WhatsApp number: {phone}\nOn Discord, run .link\nThen send .link <code> here."
@@ -438,6 +442,7 @@ def save_auth(here):
 
 def run():
     here = os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(os.path.join(here, "wa_auth"), exist_ok=True)
     load_saved_auth(here)
     js = os.path.join(here, "whatsapp_door.js")
     if not os.path.exists(js):
@@ -488,8 +493,15 @@ def run():
                         waiter[0].set()
                 elif kind == "message":
                     try:
+                        raw_text = (data.get("text") or "").strip()
+                        is_command = raw_text.startswith(".") or raw_text.startswith("/")
+                        if not is_command:
+                            from core import canonical_user, get_kiragpt_session, wid
+                            uid = canonical_user(wid(data.get("from", "")))
+                            if not get_kiragpt_session(uid).get("active"):
+                                continue
                         reply = handle_text(
-                            data.get("text", ""),
+                            raw_text,
                             data.get("from", ""),
                             data.get("name") or "You",
                             data,
@@ -501,7 +513,7 @@ def run():
                         if isinstance(item, dict):
                             item.setdefault("chat", data.get("chat"))
                             send_line(proc, item)
-                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll"):
+                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll", "image"):
                                 send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item.get("text")})
                         else:
                             send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item})
