@@ -102,10 +102,17 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.25.6"
+BOT_VERSION = "1.25.7"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.25.7",
+        "date": "2026-11-21",
+        "changes": [
+            "Menu and shop tabs now use the boxed Xephon style",
+        ],
+    },
     {
         "version": "1.25.6",
         "date": "2026-11-21",
@@ -2131,136 +2138,152 @@ COMMAND_HELP = {
 }
 
 def build_menu_text():
-    body = """XEPHON
-Developed by Kira
-.help <command>
+    body = """╭━━━〔 ✦ XEPHON ✦ 〕━━━╮
+┃  🌌  Xephon AI Hub
+┃  🧑‍💻  Developed by Kira
+┃  🏷️  .help <command>
+╰━━━━━━━━━━━━━━━━━━╯
 
-XEPHONGPT
-  .xephongpt
-  .xephongpt on / off
-  .xephongpt wild / ai / normal
+╭〔 🤖 XEPHONGPT 〕╮
+┃ ➤ .xephongpt
+┃ ➤ .xephongpt on / off
+┃ ➤ .xephongpt wild / ai / normal
+╰──────────────╯
 
-FUN
-  .ping
-  .8ball
-  .joke
-  .translate
-  .trt
-  .poll
+╭〔 🎮 FUN 〕╮
+┃ ➤ .ping
+┃ ➤ .8ball
+┃ ➤ .joke
+┃ ➤ .translate
+┃ ➤ .poll
+╰──────────╯
 
-INFO
-  .avatar
-  .userinfo
-  .profile
-  .updateinfo
-  .versions
+╭〔 📊 INFO 〕╮
+┃ ➤ .avatar
+┃ ➤ .userinfo
+┃ ➤ .profile
+┃ ➤ .updateinfo
+┃ ➤ .versions
+╰──────────╯
 
-LEVELS
-  .rank
-  .ranklb
-  .levelroles
-  .setlevelrole
-  .syncroles
+╭〔 📈 LEVELS 〕╮
+┃ ➤ .rank
+┃ ➤ .ranklb
+┃ ➤ .levelroles
+┃ ➤ .setlevelrole
+┃ ➤ .syncroles
+╰────────────╯
 
-ECONOMY
-  .bal
-  .daily
-  .work
-  .lb
-  .rank
-  .ranklb
-  .withdraw
-  .deposit
-  .fish
-  .beg
-  .dig
-  .rob
-  .loan
-  .payloan
-  .donate
+╭〔 💰 ECONOMY 〕╮
+┃ ➤ .bal
+┃ ➤ .daily
+┃ ➤ .work
+┃ ➤ .lb
+┃ ➤ .withdraw
+┃ ➤ .deposit
+┃ ➤ .fish
+┃ ➤ .beg
+┃ ➤ .dig
+┃ ➤ .rob
+┃ ➤ .loan
+┃ ➤ .payloan
+┃ ➤ .donate
+╰─────────────╯
 
-JOBS
-  .jobs
-  .setjob
-  .myjob
-  .treasury
+╭〔 💼 JOBS 〕╮
+┃ ➤ .jobs
+┃ ➤ .setjob
+┃ ➤ .myjob
+┃ ➤ .treasury
+╰──────────╯
 
-PETS
-  .buypet
-  .feedpet
-  .collectpet
-  .pet
+╭〔 🐾 PETS 〕╮
+┃ ➤ .buypet
+┃ ➤ .feedpet
+┃ ➤ .collectpet
+┃ ➤ .pet
+╰──────────╯
 
-MARRIAGE
-  .marry
-  .marryaccept
-  .divorce
-  .partner
+╭〔 💍 MARRIAGE 〕╮
+┃ ➤ .marry
+┃ ➤ .marryaccept
+┃ ➤ .divorce
+┃ ➤ .partner
+╰──────────────╯
 
-ACHIEVEMENTS
-  .achievements
+╭〔 🏆 ACHIEVEMENTS 〕╮
+┃ ➤ .achievements
+╰──────────────────╯
 
-MARKET
-  .sell
-  .market
-  .buylisting
-  .cancellisting
+╭〔 📈 MARKET 〕╮
+┃ ➤ .sell
+┃ ➤ .market
+┃ ➤ .buylisting
+┃ ➤ .cancellisting
+╰────────────╯
 
-SHOP
-  .shop
-  .buy
-  .use
-  .inventory
+╭〔 🛒 SHOP 〕╮
+┃ ➤ .shop
+┃ ➤ .buy
+┃ ➤ .use
+┃ ➤ .inventory
+╰──────────╯
 
-GAMBLING
-  .cf
-  .roll
-  .roulette
-  .mines
-  .blackjack
-  .slot
+╭〔 🎰 GAMBLING 〕╮
+┃ ➤ .cf
+┃ ➤ .roll
+┃ ➤ .roulette
+┃ ➤ .mines
+┃ ➤ .blackjack
+┃ ➤ .slot
+╰──────────────╯
 
-UTILITY
-  .afk
-  .cds
-  .help
-  .ncm
-  .menu
-  .repo
-  .link
+╭〔 🛠️ UTILITY 〕╮
+┃ ➤ .afk
+┃ ➤ .cds
+┃ ➤ .help
+┃ ➤ .ncm
+┃ ➤ .menu
+┃ ➤ .repo
+┃ ➤ .link
+╰─────────────╯
 
-ADMIN
-  .give
-  .take
-  .delete
-  .react
-  .botban
-  .botunban
-  .xban
-  .xunban
-  .bans
-  .antidelete
-  .antibadword
-  .storage
-  .clearcache
-  .restart
+╭〔 🛡️ ADMIN 〕╮
+┃ ➤ .give
+┃ ➤ .take
+┃ ➤ .delete
+┃ ➤ .react
+┃ ➤ .botban
+┃ ➤ .botunban
+┃ ➤ .xban
+┃ ➤ .xunban
+┃ ➤ .bans
+┃ ➤ .antidelete
+┃ ➤ .antibadword
+┃ ➤ .storage
+┃ ➤ .clearcache
+┃ ➤ .restart
+╰───────────╯
 
-OWNER
-  .auth
-  .stats
-  .activity
-  .reset
-  .ptag
-  .checkall
-  .pair
+╭〔 👑 OWNER 〕╮
+┃ ➤ .auth
+┃ ➤ .stats
+┃ ➤ .activity
+┃ ➤ .reset
+┃ ➤ .ptag
+┃ ➤ .checkall
+┃ ➤ .pair
+╰───────────╯
 
-TESTER
-  .test on
-  .test off
+╭〔 🧪 TESTER 〕╮
+┃ ➤ .test on
+┃ ➤ .test off
+╰────────────╯
 
 Developed by Kira
 """
     return f"```\n{body}```"
+
 
 def build_help_text(name: str) -> str:
     key = name.strip().lower().lstrip("./")
@@ -2556,7 +2579,7 @@ def build_jobs_list_text() -> str:
         lines.append(f"┃ `{key}` — {info['label']} — ${info['pay']:,}/{SALARY_INTERVAL_HOURS // 24}d")
     lines.append("┃")
     lines.append("┃ Get randomly assigned one with `.setjob` (once every 2 weeks)")
-    lines.append("╰━━━━━━━━━━━━━━━━━━━━━━⬣")
+    lines.append("╰━━━━━━━━━━━━━━━━━━╯")
     return "\n".join(lines)
 
 def get_leaderboard(limit: int = 10):
@@ -3481,7 +3504,7 @@ def use_global_item(user_id, item_key: str):
     return "✅ Used."
 
 def build_shop_text(guild_id: int) -> str:
-    lines = ["╭━━━〔 🛒 sʜᴏᴘ 〕━━━⬣", "┃", "┃ **Global items**"]
+    lines = ["╭━━━〔 🛒 SHOP 〕━━━╮", "┃", "┃  ➤ Global items"]
     for key, item in GLOBAL_ITEMS.items():
         lines.append(f"┃ `{key}` {item['name']} — {item['price']:,} coins — {item['description']}")
     custom = get_shop_items(guild_id)

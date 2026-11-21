@@ -45,78 +45,107 @@ def run_async(coro):
     return asyncio.run(coro)
 
 def menu_text():
-    return """XEPHON ON WHATSAPP
+    return """╭━━━〔 ✦ XEPHON ✦ 〕━━━╮
+┃  🌌  Xephon AI Hub
+┃  🧑‍💻  Developed by Kira
+┃  🏷️  WhatsApp door
+╰━━━━━━━━━━━━━━━━━━╯
 
-.ping
-.8ball
-.joke
-.translate <language> <text>
-.xephongpt on / off
-.xephongpt <message>
+╭〔 🎮 FUN 〕╮
+┃ ➤ .ping
+┃ ➤ .8ball
+┃ ➤ .joke
+┃ ➤ .translate <language> <text>
+╰──────────╯
 
-.bal
-.daily
-.work
-.lb
-.rank
-.ranklb
-.withdraw <amount>
-.deposit <amount>
-.fish
-.beg
-.dig
-.rob <number>
-.loan <amount>
-.payloan <amount>
-.donate <number> <amount>
+╭〔 🤖 XEPHONGPT 〕╮
+┃ ➤ .xephongpt on / off
+┃ ➤ .xephongpt wild / ai / normal
+┃ ➤ .xephongpt <message>
+╰──────────────╯
 
-.jobs
-.setjob <job>
-.myjob
-.treasury
+╭〔 💰 ECONOMY 〕╮
+┃ ➤ .bal
+┃ ➤ .daily
+┃ ➤ .work
+┃ ➤ .lb
+┃ ➤ .withdraw <amount>
+┃ ➤ .deposit <amount>
+┃ ➤ .fish
+┃ ➤ .beg
+┃ ➤ .dig
+┃ ➤ .rob <number>
+┃ ➤ .loan <amount>
+┃ ➤ .payloan <amount>
+┃ ➤ .donate <number> <amount>
+╰─────────────╯
 
-.pet
-.buypet <type> <name>
-.feedpet
-.collectpet
+╭〔 💼 JOBS 〕╮
+┃ ➤ .jobs
+┃ ➤ .setjob <job>
+┃ ➤ .myjob
+┃ ➤ .treasury
+╰──────────╯
 
-.shop
-.buy <item> [amount]
-.use <item>
-.inventory
+╭〔 🐾 PETS 〕╮
+┃ ➤ .pet
+┃ ➤ .buypet <type> <name>
+┃ ➤ .feedpet
+┃ ➤ .collectpet
+╰──────────╯
 
-.market
-.sell <item> <qty> <price>
-.buylisting <id>
-.cancellisting <id>
+╭〔 🛒 SHOP 〕╮
+┃ ➤ .shop
+┃ ➤ .buy <item> [amount]
+┃ ➤ .use <item>
+┃ ➤ .inventory
+╰──────────╯
 
-.cf <heads/tails> <amount>
-.roll <amount>
-.roulette <red/black/green> <amount>
-.slot <amount>
-.mines <bet>
-.blackjack <bet>
+╭〔 📈 MARKET 〕╮
+┃ ➤ .market
+┃ ➤ .sell <item> <qty> <price>
+┃ ➤ .buylisting <id>
+┃ ➤ .cancellisting <id>
+╰────────────╯
 
-.profile
-.achievements
-.cds
-.updateinfo
-.versions
-.repo
-.link <code>
-.afk [reason]
-.botban <number>
-.botunban <number>
-.xban <number> <category>
-.xunban <number> <category>
-.bans
-.storage
-.reset
+╭〔 🎰 GAMBLING 〕╮
+┃ ➤ .cf <heads/tails> <amount>
+┃ ➤ .roll <amount>
+┃ ➤ .roulette <red/black/green> <amount>
+┃ ➤ .slot <amount>
+┃ ➤ .mines <bet>
+┃ ➤ .blackjack <bet>
+╰──────────────╯
 
-.delete
-.react <any emoji>
-.poll question | option | option
-.ptag <message>
+╭〔 📊 INFO 〕╮
+┃ ➤ .profile
+┃ ➤ .rank
+┃ ➤ .ranklb
+┃ ➤ .achievements
+┃ ➤ .cds
+┃ ➤ .updateinfo
+┃ ➤ .versions
+┃ ➤ .repo
+╰──────────╯
+
+╭〔 🛠️ UTILITY 〕╮
+┃ ➤ .link <code>
+┃ ➤ .afk [reason]
+┃ ➤ .delete
+┃ ➤ .react <emoji>
+┃ ➤ .poll question | option | option
+┃ ➤ .ptag <message>
+╰─────────────╯
+
+╭〔 🛡️ ADMIN 〕╮
+┃ ➤ .botban <number>
+┃ ➤ .botunban <number>
+┃ ➤ .xban <number> <category>
+┃ ➤ .xunban <number> <category>
+┃ ➤ .bans
+┃ ➤ .storage
+┃ ➤ .reset
+╰───────────╯
 
 Role commands stay on Discord.
 """
