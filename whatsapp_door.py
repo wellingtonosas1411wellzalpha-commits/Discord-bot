@@ -35,10 +35,8 @@ def request_pair(phone: str, timeout: int = 40):
 import asyncio
 
 ROLE_ONLY = {
-    "afk", "ncm", "botban", "botunban", "xban",
-    "xunban", "bans", "antidelete", "antibadword", "storage", "clearcache",
-    "restart", "auth", "stats", "activity", "reset", "ptag", "checkall",
     "give", "take", "syncroles", "levelroles", "setlevelrole", "pair",
+    "avatar", "userinfo", "authdiscord", "checkalldiscord",
 }
 
 def run_async(coro):
@@ -135,6 +133,11 @@ def menu_text():
 ┃ ➤ .react <emoji>
 ┃ ➤ .poll question | option | option
 ┃ ➤ .ptag <message>
+┃ ➤ .ncm on / off
+┃ ➤ .marry @person
+┃ ➤ .marryaccept
+┃ ➤ .divorce
+┃ ➤ .partner
 ╰─────────────╯
 
 ╭〔 🛡️ ADMIN 〕╮
@@ -144,6 +147,13 @@ def menu_text():
 ┃ ➤ .xunban <number> <category>
 ┃ ➤ .bans
 ┃ ➤ .storage
+┃ ➤ .clearcache
+┃ ➤ .restart
+┃ ➤ .activity
+┃ ➤ .auth on / off
+┃ ➤ .antidelete on / off
+┃ ➤ .antibadword on / off
+┃ ➤ .checkall
 ┃ ➤ .reset
 ╰───────────╯
 
@@ -182,17 +192,26 @@ def handle_text(text, phone, name, meta=None):
         return "Send .menu"
     cmd = parts[0].lower().lstrip("./")
     args = parts[1:]
-    session = get_kiragpt_session(uid)
-
-    if session.get("active") and not raw.startswith(".") and not raw.startswith("/"):
-        try:
-            reply = run_async(generate_code_response(raw, mode=session.get("mode", "normal"), history=session.get("history")))
-            session.setdefault("history", []).append({"role": "user", "content": raw[:1500]})
-            session["history"].append({"role": "assistant", "content": reply[:1500]})
-            session["history"] = session["history"][-20:]
-            return reply
-        except Exception as e:
-            return f"XephonGPT failed: {e}"
+    from core import get_meta, set_meta, ncm_enabled, parse_ncm_request
+    if not raw.startswith(".") and not raw.startswith("/"):
+        if get_meta("wa_gpt_on") == "on" and (meta or {}).get("replyToBot"):
+            mode = get_meta("wa_gpt_mode") or "normal"
+            history = json.loads(get_meta("wa_gpt_history") or "[]")
+            try:
+                reply = run_async(generate_code_response(raw, mode=mode, history=history))
+                history.append({"role": "user", "content": raw[:1200]})
+                history.append({"role": "assistant", "content": reply[:1200]})
+                set_meta("wa_gpt_history", json.dumps(history[-20:]))
+                return reply
+            except Exception as e:
+                return f"XephonGPT failed: {e}"
+        if ncm_enabled.get(uid):
+            matched, ncm_args = parse_ncm_request(raw)
+            if matched:
+                raw = f".{matched} {ncm_args}".strip()
+                parts = raw.split()
+                cmd = parts[0].lower().lstrip("./")
+                args = parts[1:]
 
     if cmd in ROLE_ONLY:
         return f".{cmd} needs Discord roles, so it stays on Discord."
@@ -211,13 +230,14 @@ def handle_text(text, phone, name, meta=None):
         return "Pong"
     if cmd == "xephongpt":
         if args and args[0].lower() == "on":
-            session["active"] = True
-            return "XephonGPT on. Just type normally."
+            set_meta("wa_gpt_on", "on")
+            return "XephonGPT on for everyone. Reply to Xephon to talk."
         if args and args[0].lower() == "off":
-            session["active"] = False
+            set_meta("wa_gpt_on", "off")
+            set_meta("wa_gpt_history", "[]")
             return "XephonGPT off."
-        if len(args) >= 2 and args[1].lower() == "on" and args[0].lower() in ("wild", "ai", "normal"):
-            session["mode"] = args[0].lower()
+        if args and args[0].lower() in ("wild", "ai", "normal"):
+            set_meta("wa_gpt_mode", args[0].lower())
             return f"Mode set to {args[0].lower()}."
         prompt = " ".join(args).strip()
         if not prompt:
@@ -435,7 +455,105 @@ def handle_text(text, phone, name, meta=None):
         if not info.get("isGroup"):
             return "Use .ptag in a WhatsApp group."
         return {"type": "ptag", "chat": info.get("chat"), "text": " ".join(args) or "Hey"}
-    return "Unknown command. Send .menu"
+
+    def tagged(meta, args):
+        nums = []
+        for item in (meta or {}).get("mentions") or []:
+            digits = "".join(ch for ch in str(item) if ch.isdigit())
+            if digits:
+                nums.append(digits)
+        for part in args:
+            digits = "".join(ch for ch in part if ch.isdigit())
+            if digits and len(digits) >= 8:
+                nums.append(digits)
+        return nums
+
+    chat = (meta or {}).get("chat") or ""
+    if cmd == "auth":
+        state = (args[0].lower() if args else "")
+        if state not in ("on", "off"):
+            current = "on" if get_meta(f"auth:{chat}") != "off" else "off"
+            return f"Auth is {current}. Use .auth on or .auth off."
+        set_meta(f"auth:{chat}", state)
+        return f"Bot responses turned {state} for this chat."
+    if cmd == "activity":
+        from core import build_activity_text
+        return build_activity_text()
+    if cmd == "storage":
+        return build_storage_text()
+    if cmd == "clearcache":
+        from core import do_clearcache
+        return do_clearcache()
+    if cmd == "antidelete":
+        state = (args[0].lower() if args else "")
+        if state not in ("on", "off"):
+            current = "on" if get_meta(f"antidelete:{chat}") == "on" else "off"
+            return f"Antidelete is {current}."
+        set_meta(f"antidelete:{chat}", state)
+        return f"Antidelete is {state}."
+    if cmd == "antibadword":
+        key = f"abw:{chat}"
+        data = json.loads(get_meta(key) or '{"on": false, "words": []}')
+        action = (args[0].lower() if args else "list")
+        if action in ("on", "off"):
+            data["on"] = action == "on"
+            set_meta(key, json.dumps(data))
+            return f"Antibadword is {action}."
+        if action == "add" and len(args) > 1:
+            word = " ".join(args[1:]).lower()
+            data.setdefault("words", [])
+            if word not in data["words"]:
+                data["words"].append(word)
+            set_meta(key, json.dumps(data))
+            return f"Added bad word: {word}"
+        if action == "remove" and len(args) > 1:
+            word = " ".join(args[1:]).lower()
+            data["words"] = [w for w in data.get("words", []) if w != word]
+            set_meta(key, json.dumps(data))
+            return f"Removed bad word: {word}"
+        words = ", ".join(data.get("words") or []) or "none"
+        return f"Antibadword is {'on' if data.get('on') else 'off'}. Words: {words}"
+    if cmd == "ncm":
+        from core import set_ncm
+        state = (args[0].lower() if args else "")
+        if state not in ("on", "off"):
+            return "Use .ncm on or .ncm off."
+        set_ncm(uid, state == "on")
+        return f"No Command Mode is {state}."
+    if cmd == "checkall":
+        names = ["ping", "menu", "bal", "shop", "jobs", "pet", "market", "versions", "storage", "activity"]
+        return "Checkall ready.\n" + "\n".join(f".{name} is registered" for name in names)
+    if cmd == "restart":
+        from core import trigger_render_deploy
+        ok, msg = trigger_render_deploy()
+        return "Xephon is going offline to apply the latest commit." if ok else f"Could not restart.\n{msg}"
+    if cmd == "marry":
+        nums = tagged(meta, args)
+        if not nums:
+            return "Tag the person. Example: .marry @number"
+        return propose_marriage(uid, wid(nums[0]))
+    if cmd == "marryaccept":
+        from core import accept_marriage
+        return accept_marriage(uid)
+    if cmd == "divorce":
+        return do_divorce(uid)
+    if cmd == "partner":
+        nums = tagged(meta, args)
+        target = wid(nums[0]) if nums else uid
+        partner_id = get_partner(target)
+        if not partner_id:
+            return "Not married."
+        return f"Married to {partner_id}."
+
+    if chat:
+        data = json.loads(get_meta(f"abw:{chat}") or '{"on": false, "words": []}')
+        if data.get("on"):
+            lowered = raw.lower()
+            hit = next((word for word in data.get("words", []) if word and word in lowered), None)
+            if hit:
+                return {"type": "delete", "chat": chat, "msgId": (meta or {}).get("msgId"), "participant": (meta or {}).get("participant"), "text": f"Removed a blocked word."}
+
+        return "Unknown command. Send .menu"
 
 def load_saved_auth(here):
     try:
@@ -520,14 +638,23 @@ def run():
                     if waiter:
                         waiter[1]["error"] = LAST_ERROR["text"]
                         waiter[0].set()
+                elif kind == "deleted":
+                    from core import get_meta
+                    chat = data.get("chat") or ""
+                    if get_meta(f"antidelete:{chat}") == "on":
+                        who = data.get("name") or data.get("from") or "Someone"
+                        text = data.get("text") or ""
+                        send_line(proc, {"type": "send", "chat": chat, "text": f"@{data.get('from','')} tried to delete: {text}"})
+                    continue
                 elif kind == "message":
                     try:
                         raw_text = (data.get("text") or "").strip()
                         is_command = raw_text.startswith(".") or raw_text.startswith("/")
                         if not is_command:
-                            from core import canonical_user, get_kiragpt_session, wid
+                            from core import canonical_user, get_meta, ncm_enabled, wid
                             uid = canonical_user(wid(data.get("from", "")))
-                            if not get_kiragpt_session(uid).get("active"):
+                            gpt_open = get_meta("wa_gpt_on") == "on" and bool(data.get("replyToBot"))
+                            if not gpt_open and not ncm_enabled.get(uid):
                                 continue
                         reply = handle_text(
                             raw_text,

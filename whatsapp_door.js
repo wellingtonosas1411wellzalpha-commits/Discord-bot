@@ -9,6 +9,27 @@ function out(obj) {
 
 let sock = null
 let pairing = false
+const sentIds = new Set()
+const recent = new Map()
+
+function rememberSent(sent) {
+  const id = sent?.key?.id
+  if (!id) return
+  sentIds.add(id)
+  if (sentIds.size > 800) sentIds.delete(sentIds.values().next().value)
+}
+
+function rememberIncoming(msg, text) {
+  const id = msg?.key?.id
+  if (!id) return
+  recent.set(id, {
+    text,
+    name: msg.pushName || "Someone",
+    from: (msg.key.participant || msg.key.remoteJid || "").split("@")[0],
+    chat: msg.key.remoteJid,
+  })
+  if (recent.size > 800) recent.delete(recent.keys().next().value)
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -33,6 +54,8 @@ async function openSocket() {
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
       if (!text) continue
       const quoted = msg.message.extendedTextMessage?.contextInfo || {}
+      rememberIncoming(msg, text)
+      const mentions = (quoted.mentionedJid || msg.message.extendedTextMessage?.contextInfo?.mentionedJid || []).map(j => String(j).split("@")[0])
       out({
         type: "message",
         from: (msg.key.participant || msg.key.remoteJid || "").split("@")[0],
@@ -42,7 +65,18 @@ async function openSocket() {
         quoted: quoted.stanzaId || "",
         participant: quoted.participant || msg.key.participant || "",
         isGroup: String(msg.key.remoteJid || "").endsWith("@g.us"),
+        replyToBot: Boolean(quoted.stanzaId && sentIds.has(quoted.stanzaId)),
+        mentions,
+        msgId: msg.key.id || "",
       })
+    }
+  })
+  sock.ev.on("messages.delete", async (item) => {
+    const keys = item.keys || item || []
+    for (const key of keys) {
+      const saved = recent.get(key.id)
+      if (!saved) continue
+      out({ type: "deleted", chat: key.remoteJid, from: saved.from, name: saved.name, text: saved.text })
     }
   })
   sock.ev.on("connection.update", async (update) => {
@@ -83,7 +117,8 @@ async function start() {
     try {
       data = JSON.parse(line)
       if (data.type === "send" && data.chat && data.text && sock) {
-        await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
+        const sent = await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] })
+        rememberSent(sent)
       }
       if (data.type === "delete" && data.chat && data.msgId && sock) {
         await sock.sendMessage(data.chat, { delete: { remoteJid: data.chat, fromMe: false, id: data.msgId, participant: data.participant || undefined } })
@@ -96,7 +131,8 @@ async function start() {
       }
       if (data.type === "image" && data.chat && sock) {
         const buf = fs.readFileSync(data.file)
-        await sock.sendMessage(data.chat, { image: buf, caption: data.text || "" })
+        const sent = await sock.sendMessage(data.chat, { image: buf, caption: data.text || "" })
+        rememberSent(sent)
       }
       if (data.type === "ptag" && data.chat && sock) {
         const meta = await sock.groupMetadata(data.chat)

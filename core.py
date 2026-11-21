@@ -102,10 +102,19 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.25.7"
+BOT_VERSION = "1.25.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.25.8",
+        "date": "2026-11-21",
+        "changes": [
+            "WhatsApp GPT talks only when you reply to it",
+            "GPT on is open to everyone",
+            "Added auth, activity, storage, clearcache, antidelete, antibadword, ncm, checkall, restart, marry, divorce, and partner to WhatsApp",
+        ],
+    },
     {
         "version": "1.25.7",
         "date": "2026-11-21",
