@@ -4750,7 +4750,7 @@ NCM_ALLOWED = {
     "collectpet", "pet", "marry", "marryaccept", "divorce", "partner",
     "achievements", "sell", "market", "lb", "rank", "ranklb", "mines",
     "blackjack", "rob", "shop", "buy", "use", "help", "inventory", "slot",
-    "roll", "cds", "donate",
+    "roll", "cds", "donate", "ptag",
 }
 NCM_CONFIRM = {
     "donate", "withdraw", "deposit", "buy", "rob", "loan", "payloan", "sell",
