@@ -206,7 +206,7 @@ def handle_text(text, phone, name, meta=None):
             except Exception as e:
                 return f"XephonGPT failed: {e}"
         if ncm_enabled.get(uid):
-            matched, ncm_args = parse_ncm_request(raw)
+            matched, ncm_args = run_async(parse_ncm_request(raw))
             if matched:
                 raw = f".{matched} {ncm_args}".strip()
                 parts = raw.split()
