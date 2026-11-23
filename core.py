@@ -102,10 +102,20 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.25.8"
+BOT_VERSION = "1.26.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.0",
+        "date": "2026-11-23",
+        "changes": [
+            "ptag is now tag and xephongpt is now xgpt",
+            "XGPT answers when you type Z, X, or Xephon",
+            "NCM supports more commands and confirms remove or add",
+            "Added mute, antilink, and purge",
+        ],
+    },
     {
         "version": "1.25.8",
         "date": "2026-11-21",
@@ -129,7 +139,7 @@ VERSION_HISTORY = [
             "Menu now includes the Xephon picture",
             "WhatsApp stays quiet unless a command is used or GPT is on",
             "Pair always creates the auth folder",
-            "ptag no longer needs a role",
+            "tag no longer needs a role",
         ],
     },
     {
@@ -186,7 +196,7 @@ VERSION_HISTORY = [
         "version": "1.24.8",
         "date": "2026-11-20",
         "changes": [
-            "WhatsApp now has delete, react, poll, and ptag",
+            "WhatsApp now has delete, react, poll, and tag",
             "Failed commands now show the error",
         ],
     },
@@ -623,7 +633,7 @@ VERSION_HISTORY = [
         "version": "1.18.8",
         "date": "2026-10-31",
         "changes": [
-            "/xephongpt now shows wild, Ai, normal and on/off choices",
+            "/xgpt now shows wild, Ai, normal and on/off choices",
         ],
     },
     {
@@ -676,7 +686,7 @@ VERSION_HISTORY = [
         "version": "1.18.1",
         "date": "2026-10-31",
         "changes": [
-            "Moved .ptag to the Owner menu",
+            "Moved .tag to the Owner menu",
             "Fixed .test on/off and accepted vip/tester role names",
             "NCM now runs a command when its name is in the sentence",
             "Cleaner command menu",
@@ -686,7 +696,7 @@ VERSION_HISTORY = [
         "version": "1.18.0",
         "date": "2026-10-31",
         "changes": [
-            ".ptag is now owner-only",
+            ".tag is now owner-only",
             "Removed .recharge",
             "Added .test on/off for VIP and tester roles",
         ],
@@ -711,7 +721,7 @@ VERSION_HISTORY = [
         "version": "1.16.8",
         "date": "2026-10-30",
         "changes": [
-            ".ptag now mentions every member one by one",
+            ".tag now mentions every member one by one",
             "XephonGPT knows the creator is Kira",
         ],
     },
@@ -726,7 +736,7 @@ VERSION_HISTORY = [
         "version": "1.16.6",
         "date": "2026-10-30",
         "changes": [
-            "Added .ptag — deletes your message, then posts it and tags everyone",
+            "Added .tag — deletes your message, then posts it and tags everyone",
         ],
     },
     {
@@ -818,7 +828,7 @@ VERSION_HISTORY = [
         "date": "2026-10-10",
         "changes": [
             "Bot name changed from Kira to Xephon",
-            ".kiragpt is now .xephongpt",
+            ".kiragpt is now .xgpt",
         ],
     },
     {
@@ -1061,7 +1071,7 @@ x_bans = {}
 BAN_CATEGORIES = {
     "fun", "info", "economy", "jobs", "pets", "marriage", "achievements",
     "market", "shop", "gambling", "utility", "levels", "admin", "owner",
-    "xephongpt", "tester",
+    "xgpt", "tester",
 }
 COMMAND_CATEGORY = {
     "ping": "fun", "8ball": "fun", "joke": "fun", "translate": "fun", "trt": "fun", "poll": "fun",
@@ -1083,8 +1093,8 @@ COMMAND_CATEGORY = {
     "give": "admin", "take": "admin", "delete": "admin",
     "botban": "admin", "botunban": "admin", "xban": "admin", "xunban": "admin", "bans": "admin",
     "storage": "admin", "restart": "admin", "stats": "owner", "activity": "owner",
-    "clearcache": "admin", "reset": "owner", "ptag": "owner", "checkall": "owner", "pair": "owner", "auth": "owner",
-    "xephongpt": "xephongpt", "test": "tester",
+    "clearcache": "admin", "reset": "owner", "tag": "owner", "checkall": "owner", "pair": "owner", "auth": "owner",
+    "xgpt": "xgpt", "test": "tester",
 }
 
 class BotBanFailure(commands.CheckFailure):
@@ -2068,7 +2078,7 @@ COMMAND_HELP = {
     "ping": "Check the bot's latency.\nUsage: `.ping`",
     "8ball": "Ask the magic 8-ball a question.\nUsage: `.8ball <question>`",
     "joke": "Get a random joke.\nUsage: `.joke`",
-    "xephongpt": "Talk to XephonGPT.\n`.xephongpt on/off` continuous chat\n`.xephongpt wild on` / `ai on` / `normal on`\n`.xephongpt <message>`",
+    "xgpt": "Talk to XephonGPT.\n`.xgpt on/off` continuous chat\n`.xgpt wild on` / `ai on` / `normal on`\n`.xgpt <message>`",
     "translate": "Translate text.\nUsage: `.translate <language> <text>`",
     "trt": "Reply to a message to translate it.\nUsage: `.trt <language>`",
     "avatar": "Get a user's avatar.\nUsage: `.avatar [user]`",
@@ -2117,7 +2127,7 @@ COMMAND_HELP = {
     "xunban": "[Admin] Remove a category ban.\nUsage: `.xunban @user gambling`",
     "bans": "[Admin] Show bot bans and category bans.\nUsage: `.bans`",
     "antidelete": "[Admin] Repost deleted messages.\nUsage: `.antidelete on` / `.antidelete off`",
-    "ptag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.ptag <message>`",
+    "tag": "[Owner] Delete your message, then mention every member with it.\nUsage: `.tag <message>`",
     "menu": "Show the short command list.\nUsage: `.menu`",
     "setjob": "Get randomly assigned a job that pays a salary automatically every 3 days, even offline. You can only reroll once every 2 weeks.\nUsage: `.setjob`",
     "myjob": "See your current job and salary.\nUsage: `.myjob`",
@@ -2153,10 +2163,10 @@ def build_menu_text():
 ┃  🏷️  .help <command>
 ╰━━━━━━━━━━━━━━━━━━╯
 
-╭〔 🤖 XEPHONGPT 〕╮
-┃ ➤ .xephongpt
-┃ ➤ .xephongpt on / off
-┃ ➤ .xephongpt wild / ai / normal
+╭〔 🤖 XGPT 〕╮
+┃ ➤ .xgpt
+┃ ➤ .xgpt on / off
+┃ ➤ .xgpt wild / normal
 ╰──────────────╯
 
 ╭〔 🎮 FUN 〕╮
@@ -2279,7 +2289,7 @@ def build_menu_text():
 ┃ ➤ .stats
 ┃ ➤ .activity
 ┃ ➤ .reset
-┃ ➤ .ptag
+┃ ➤ .tag
 ┃ ➤ .checkall
 ┃ ➤ .pair
 ╰───────────╯
@@ -4157,7 +4167,7 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
         "You were created by Kira. Kira is a guy. Always use he/him for Kira. Never call Kira she or her. "
         "If anyone asks who made you or who your creator is, answer that Kira created you. "
         "Never mention Meta, Llama, or any other company/model name. "
-        "Use markdown code blocks for code. Keep explanations clear. "
+        "Use markdown code blocks for code. Keep explanations clear. Answer only what the user asked. Do not guess their task. Do not ask what they need help with unless they asked for ideas. "
         "BOT STRUCTURE: bot.py only loads folders. core.py holds the bot object, PostgreSQL helpers, "
         "economy logic, and shared functions. Commands are one file each inside folders: "
         "fun, info, economy, jobs, pets, marriage, achievements, market, shop, gambling, utility, "
@@ -4433,6 +4443,22 @@ def build_profile_embed(member):
 async def on_message(message: discord.Message):
     if message.author.bot or bot_restarting:
         return
+    if message.guild is not None:
+        muted = set(json.loads(get_meta(f"mute:{message.guild.id}") or "[]"))
+        if str(message.author.id) in muted:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
+        if get_meta(f"antilink:{message.guild.id}") == "on":
+            text = message.content or ""
+            if any(bit in text.lower() for bit in ("http://", "https://", "www.", ".com", ".ng", "discord.gg")):
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                return
 
     # XP / leveling
     if message.guild is not None:
@@ -4610,6 +4636,18 @@ async def on_message(message: discord.Message):
             await message.reply(f"`.{cmd.name}` is working", mention_author=False)
             return
 
+    session = get_kiragpt_session(did(message.author.id))
+    content = (message.content or "").strip()
+    words = {part.strip(".,!?").lower() for part in content.split()}
+    if session.get("active") and not content.startswith(".") and words.intersection({"z", "x", "xephon"}):
+        async def send_func(text, file=None):
+            if file:
+                await message.reply(text, file=file, mention_author=False)
+            else:
+                await message.reply(text, mention_author=False)
+        await handle_kiragpt_message(message.author, content, send_func)
+        return
+
     await bot.process_commands(message)
 
 def start():
@@ -4750,7 +4788,12 @@ NCM_ALLOWED = {
     "collectpet", "pet", "marry", "marryaccept", "divorce", "partner",
     "achievements", "sell", "market", "lb", "rank", "ranklb", "mines",
     "blackjack", "rob", "shop", "buy", "use", "help", "inventory", "slot",
-    "roll", "cds", "donate", "ptag",
+    "roll", "cds", "donate", "tag", "xgpt", "menu", "poll", "repo", "link",
+    "delete", "react", "mute", "antilink", "purge", "clear", "antidelete",
+    "antibadword", "storage", "clearcache", "restart", "auth", "activity",
+    "reset", "checkall", "give", "take", "syncroles", "levelroles", "treasury",
+    "setjob", "versions", "updateinfo", "bans", "botban", "botunban", "xban",
+    "xunban", "buylisting", "cancellisting", "test"
 }
 NCM_CONFIRM = {
     "donate", "withdraw", "deposit", "buy", "rob", "loan", "payloan", "sell",
@@ -4912,8 +4955,8 @@ async def handle_kiragpt_message(user, prompt: str, send_func, images: list = No
     if not prompt.strip() and not images:
         await send_func(
             "❌ Usage:\n"
-            "`.xephongpt <message>`\n"
-            "`.xephongpt on/off` — continuous chat\n"
+            "`.xgpt <message>`\n"
+            "`.xgpt on/off` — continuous chat\n"
             "Reply to a picture, GIF, or video and I can read it."
         )
         return
@@ -4937,7 +4980,7 @@ async def handle_kiragpt_message(user, prompt: str, send_func, images: list = No
     else:
         import io
         file_bytes = io.BytesIO(reply_text.encode("utf-8"))
-        discord_file = discord.File(file_bytes, filename="xephongpt_response.txt")
+        discord_file = discord.File(file_bytes, filename="xgpt_response.txt")
         await send_func("📄 Response was long — sending as a file:", file=discord_file)
 
 
@@ -5082,6 +5125,14 @@ def fit_box(title: str, rows: list[str], width: int = 24) -> str:
                 break
     lines.append(bar)
     return "```\n" + "\n".join(lines) + "\n```"
+
+def build_updateinfo_plain() -> str:
+    info = LATEST_UPDATE_INFO
+    lines = [f"Version {info['version']}", f"Date {info['date']}", "", "WHAT'S NEW"]
+    for change in info.get("changes", []):
+        lines.append(f"- {change}")
+    lines.extend(["", "Full log .versions"])
+    return "\n".join(lines)
 
 def build_updateinfo_text() -> str:
     info = LATEST_UPDATE_INFO

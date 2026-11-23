@@ -57,9 +57,9 @@ def menu_text():
 ╰──────────╯
 
 ╭〔 🤖 XEPHONGPT 〕╮
-┃ ➤ .xephongpt on / off
-┃ ➤ .xephongpt wild / ai / normal
-┃ ➤ .xephongpt <message>
+┃ ➤ .xgpt on / off
+┃ ➤ .xgpt wild / ai / normal
+┃ ➤ .xgpt <message>
 ╰──────────────╯
 
 ╭〔 💰 ECONOMY 〕╮
@@ -132,7 +132,7 @@ def menu_text():
 ┃ ➤ .delete
 ┃ ➤ .react <emoji>
 ┃ ➤ .poll question | option | option
-┃ ➤ .ptag <message>
+┃ ➤ .tag <message>
 ┃ ➤ .ncm on / off
 ┃ ➤ .marry @person
 ┃ ➤ .marryaccept
@@ -188,13 +188,27 @@ def handle_text(text, phone, name, meta=None):
     uid = canonical_user(raw_uid)
     raw = (text or "").strip()
     parts = raw.split()
+    chat = (meta or {}).get("chat") or ""
+
+    def tagged(meta, args):
+        nums = []
+        for item in (meta or {}).get("mentions") or []:
+            digits = "".join(ch for ch in str(item) if ch.isdigit())
+            if digits:
+                nums.append(digits)
+        for part in args:
+            digits = "".join(ch for ch in str(part) if ch.isdigit())
+            if digits and len(digits) >= 8:
+                nums.append(digits)
+        return nums
     if not parts:
         return "Send .menu"
     cmd = parts[0].lower().lstrip("./")
     args = parts[1:]
     from core import get_meta, set_meta, ncm_enabled, parse_ncm_request
     if not raw.startswith(".") and not raw.startswith("/"):
-        if get_meta("wa_gpt_on") == "on" and (meta or {}).get("replyToBot"):
+        words = {part.strip(".,!?").lower() for part in raw.split()}
+        if get_meta("wa_gpt_on") == "on" and (words.intersection({"z", "x", "xephon"}) or (meta or {}).get("replyToBot")):
             mode = get_meta("wa_gpt_mode") or "normal"
             history = json.loads(get_meta("wa_gpt_history") or "[]")
             try:
@@ -206,6 +220,27 @@ def handle_text(text, phone, name, meta=None):
             except Exception as e:
                 return f"XephonGPT failed: {e}"
         if ncm_enabled.get(uid):
+            pending = json.loads(get_meta(f"ncm_pending:{uid}") or "{}")
+            if pending and raw.lower() in ("yes", "y", "confirm"):
+                set_meta(f"ncm_pending:{uid}", "{}")
+                if pending.get("action") == "remove":
+                    return {"type": "group_remove", "chat": chat, "phone": pending.get("phone"), "text": f"Removed {pending.get('phone')}."}
+                if pending.get("action") == "add":
+                    return {"type": "group_add", "chat": chat, "phone": pending.get("phone"), "text": f"Added {pending.get('phone')}."}
+            cleaned = raw.lower()
+            for lead in ("x ", "z ", "xephon "):
+                if cleaned.startswith(lead):
+                    cleaned = cleaned[len(lead):]
+            if cleaned.startswith("remove "):
+                nums = tagged(meta, cleaned.split())
+                if nums:
+                    set_meta(f"ncm_pending:{uid}", json.dumps({"action": "remove", "phone": nums[0]}))
+                    return f"Remove {nums[0]} from this group? Reply yes."
+            if cleaned.startswith("add "):
+                nums = tagged(meta, cleaned.split())
+                if nums:
+                    set_meta(f"ncm_pending:{uid}", json.dumps({"action": "add", "phone": nums[0]}))
+                    return f"Add {nums[0]} to this group? Reply yes."
             matched, ncm_args = run_async(parse_ncm_request(raw))
             if matched:
                 raw = f".{matched} {ncm_args}".strip()
@@ -228,20 +263,20 @@ def handle_text(text, phone, name, meta=None):
         return "Linked. Discord and WhatsApp now share money and stats." if linked else "That code is not valid. Run .link on Discord first."
     if cmd == "ping":
         return "Pong"
-    if cmd == "xephongpt":
+    if cmd in ("xgpt", "xephongpt"):
         if args and args[0].lower() == "on":
             set_meta("wa_gpt_on", "on")
-            return "XephonGPT on for everyone. Reply to Xephon to talk."
+            return "XGPT is on for everyone. Type Z, X, or Xephon to talk."
         if args and args[0].lower() == "off":
             set_meta("wa_gpt_on", "off")
             set_meta("wa_gpt_history", "[]")
-            return "XephonGPT off."
-        if args and args[0].lower() in ("wild", "ai", "normal"):
+            return "XGPT is off."
+        if args and args[0].lower() in ("wild", "normal", "mode"):
             set_meta("wa_gpt_mode", args[0].lower())
             return f"Mode set to {args[0].lower()}."
         prompt = " ".join(args).strip()
         if not prompt:
-            return "Usage: .xephongpt <message>"
+            return "Usage: .xgpt <message>"
         reply = run_async(generate_code_response(prompt, mode=session.get("mode", "normal"), history=session.get("history")))
         return reply
     if cmd == "bal":
@@ -426,7 +461,10 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "delete":
         if not info.get("quoted"):
             return "Reply to the message you want to delete."
-        return {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant"), "text": "Deleted."}
+        return [
+            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant")},
+            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("msgId"), "participant": info.get("participant")},
+        ]
     if cmd == "react":
         if not info.get("quoted"):
             return "Reply to the message you want to react to."
@@ -451,24 +489,11 @@ def handle_text(text, phone, name, meta=None):
         if len(bits) < 3:
             return "Usage: .poll question | option | option"
         return {"type": "poll", "chat": info.get("chat"), "question": bits[0], "options": bits[1:], "text": "Poll sent."}
-    if cmd == "ptag":
+    if cmd in ("tag", "ptag"):
         if not info.get("isGroup"):
-            return "Use .ptag in a WhatsApp group."
+            return "Use .tag in a WhatsApp group."
         return {"type": "ptag", "chat": info.get("chat"), "text": " ".join(args) or "Hey"}
 
-    def tagged(meta, args):
-        nums = []
-        for item in (meta or {}).get("mentions") or []:
-            digits = "".join(ch for ch in str(item) if ch.isdigit())
-            if digits:
-                nums.append(digits)
-        for part in args:
-            digits = "".join(ch for ch in part if ch.isdigit())
-            if digits and len(digits) >= 8:
-                nums.append(digits)
-        return nums
-
-    chat = (meta or {}).get("chat") or ""
     if cmd == "auth":
         state = (args[0].lower() if args else "")
         if state not in ("on", "off"):
@@ -553,7 +578,27 @@ def handle_text(text, phone, name, meta=None):
             if hit:
                 return {"type": "delete", "chat": chat, "msgId": (meta or {}).get("msgId"), "participant": (meta or {}).get("participant"), "text": f"Removed a blocked word."}
 
-        return "Unknown command. Send .menu"
+    
+    if cmd == "mute":
+        nums = tagged(meta, args)
+        if not nums:
+            return "Tag the person. Example: .mute @number"
+        key = f"mute:{chat}"
+        ids = set(json.loads(get_meta(key) or "[]"))
+        ids.add(nums[0])
+        set_meta(key, json.dumps(sorted(ids)))
+        return f"Muted {nums[0]}."
+    if cmd == "antilink":
+        state = (args[0].lower() if args else "")
+        if state not in ("on", "off"):
+            current = "on" if get_meta(f"antilink:{chat}") == "on" else "off"
+            return f"Antilink is {current}."
+        set_meta(f"antilink:{chat}", state)
+        return f"Antilink is {state}."
+    if cmd in ("purge", "clear"):
+        return {"type": "purge", "chat": chat, "count": 10, "text": "Purged the last 10 Xephon messages."}
+
+    return "Unknown command. Send .menu"
 
 def load_saved_auth(here):
     try:
@@ -653,9 +698,20 @@ def run():
                         if not is_command:
                             from core import canonical_user, get_meta, ncm_enabled, wid
                             uid = canonical_user(wid(data.get("from", "")))
-                            gpt_open = get_meta("wa_gpt_on") == "on" and bool(data.get("replyToBot"))
+                            words = {part.strip(".,!?").lower() for part in raw_text.split()}
+                            gpt_open = get_meta("wa_gpt_on") == "on" and bool(words.intersection({"z", "x", "xephon"}) or data.get("replyToBot"))
                             if not gpt_open and not ncm_enabled.get(uid):
                                 continue
+                        from core import get_meta
+                        chat = data.get("chat") or ""
+                        muted = set(json.loads(get_meta(f"mute:{chat}") or "[]"))
+                        if data.get("from") in muted:
+                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
+                            continue
+                        text_lower = raw_text.lower()
+                        if get_meta(f"antilink:{chat}") == "on" and any(bit in text_lower for bit in ("http://", "https://", "www.", ".com", ".ng", "wa.me")):
+                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
+                            continue
                         reply = handle_text(
                             raw_text,
                             data.get("from", ""),

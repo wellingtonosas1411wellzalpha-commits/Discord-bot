@@ -10,13 +10,19 @@ function out(obj) {
 let sock = null
 let pairing = false
 const sentIds = new Set()
+const sentByChat = new Map()
 const recent = new Map()
 
 function rememberSent(sent) {
   const id = sent?.key?.id
+  const chat = sent?.key?.remoteJid
   if (!id) return
   sentIds.add(id)
   if (sentIds.size > 800) sentIds.delete(sentIds.values().next().value)
+  if (!chat) return
+  const list = sentByChat.get(chat) || []
+  list.push(sent.key)
+  sentByChat.set(chat, list.slice(-30))
 }
 
 function rememberIncoming(msg, text) {
@@ -133,6 +139,16 @@ async function start() {
         const buf = fs.readFileSync(data.file)
         const sent = await sock.sendMessage(data.chat, { image: buf, caption: data.text || "" })
         rememberSent(sent)
+      }
+      if (data.type === "purge" && data.chat && sock) {
+        const list = (sentByChat.get(data.chat) || []).slice(-(data.count || 10))
+        for (const key of list) {
+          try { await sock.sendMessage(data.chat, { delete: key }) } catch (e) {}
+        }
+      }
+      if ((data.type === "group_remove" || data.type === "group_add") && data.chat && sock && data.phone) {
+        const jid = String(data.phone).replace(/\D/g, "") + "@s.whatsapp.net"
+        await sock.groupParticipantsUpdate(data.chat, [jid], data.type === "group_add" ? "add" : "remove")
       }
       if (data.type === "ptag" && data.chat && sock) {
         const meta = await sock.groupMetadata(data.chat)
