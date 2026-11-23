@@ -1,7 +1,35 @@
 from core import *
 
-@bot.tree.command(name="purge", description="Delete Xephon's last 10 messages here")
+@bot.tree.command(name="purge", description="Delete the last 10 messages here")
 async def purge_slash(interaction: discord.Interaction):
+    if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_messages:
+        await interaction.response.send_message("You need Manage Messages.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    deleted = 0
+    async for message in interaction.channel.history(limit=10):
+        try:
+            await message.delete()
+            deleted += 1
+        except Exception:
+            pass
+    await interaction.followup.send(f"Purged {deleted} message(s).", ephemeral=True)
+
+@bot.command(name="purge")
+async def purge_prefix(ctx: commands.Context):
+    if not isinstance(ctx.author, discord.Member) or not ctx.author.guild_permissions.manage_messages:
+        await ctx.reply("You need Manage Messages.", mention_author=False)
+        return
+    deleted = 0
+    async for message in ctx.channel.history(limit=10):
+        try:
+            await message.delete()
+            deleted += 1
+        except Exception:
+            pass
+
+@bot.tree.command(name="clear", description="Delete Xephon's last 10 messages here")
+async def clear_slash(interaction: discord.Interaction):
     if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_messages:
         await interaction.response.send_message("You need Manage Messages.", ephemeral=True)
         return
@@ -16,10 +44,10 @@ async def purge_slash(interaction: discord.Interaction):
                 pass
             if deleted >= 10:
                 break
-    await interaction.followup.send(f"Purged {deleted} Xephon message(s).", ephemeral=True)
+    await interaction.followup.send(f"Cleared {deleted} Xephon message(s).", ephemeral=True)
 
-@bot.command(name="purge", aliases=["clear"])
-async def purge_prefix(ctx: commands.Context):
+@bot.command(name="clear")
+async def clear_prefix(ctx: commands.Context):
     if not isinstance(ctx.author, discord.Member) or not ctx.author.guild_permissions.manage_messages:
         await ctx.reply("You need Manage Messages.", mention_author=False)
         return

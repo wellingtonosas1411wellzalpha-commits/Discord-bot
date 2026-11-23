@@ -102,10 +102,19 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.26.0"
+BOT_VERSION = "1.26.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.1",
+        "date": "2026-11-23",
+        "changes": [
+            "Purge deletes the last 10 messages and clear deletes only Xephon messages",
+            "Added .update so WhatsApp asks update me before applying the latest deploy",
+            "WhatsApp login is saved more often so updates need less re-pairing",
+        ],
+    },
     {
         "version": "1.26.0",
         "date": "2026-11-23",

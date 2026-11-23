@@ -160,6 +160,33 @@ def menu_text():
 Role commands stay on Discord.
 """
 
+
+AUTH_DIR = Path("wa_auth")
+
+def restore_whatsapp_auth():
+    from core import get_meta
+    raw = get_meta("wa_auth_files")
+    if not raw:
+        return
+    try:
+        files = json.loads(raw)
+    except Exception:
+        return
+    AUTH_DIR.mkdir(exist_ok=True)
+    for name, content in files.items():
+        (AUTH_DIR / name).write_bytes(base64.b64decode(content))
+
+def save_whatsapp_auth():
+    from core import set_meta
+    if not AUTH_DIR.exists():
+        return
+    files = {}
+    for path in AUTH_DIR.iterdir():
+        if path.is_file():
+            files[path.name] = base64.b64encode(path.read_bytes()).decode()
+    if files:
+        set_meta("wa_auth_files", json.dumps(files))
+
 def safe(fn, *args):
     try:
         return fn(*args)
@@ -596,8 +623,17 @@ def handle_text(text, phone, name, meta=None):
             return f"Antilink is {current}."
         set_meta(f"antilink:{chat}", state)
         return f"Antilink is {state}."
-    if cmd in ("purge", "clear"):
-        return {"type": "purge", "chat": chat, "count": 10, "text": "Purged the last 10 Xephon messages."}
+    if cmd == "purge":
+        return {"type": "purge", "chat": chat, "count": 10, "text": "Purged the last 10 messages."}
+    if cmd == "clear":
+        return {"type": "clear", "chat": chat, "count": 10, "text": "Cleared the last 10 Xephon messages."}
+    if cmd == "update":
+        save_whatsapp_auth()
+        from core import trigger_render_deploy
+        ok, msg = trigger_render_deploy()
+        if not ok:
+            return f"Could not update.\n{msg}"
+        return "update me"
 
     return "Unknown command. Send .menu"
 
@@ -671,7 +707,7 @@ def run():
                     print(f"WhatsApp: {line}")
                     continue
                 kind = data.get("type")
-                if kind in ("code", "ready"):
+                if kind in ("code", "ready", "creds"):
                     save_auth(here)
                 if kind == "code":
                     waiter = WAITERS.get(data.get("id"))

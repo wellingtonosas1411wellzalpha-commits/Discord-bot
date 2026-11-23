@@ -12,6 +12,7 @@ let pairing = false
 const sentIds = new Set()
 const sentByChat = new Map()
 const recent = new Map()
+const recentByChat = new Map()
 
 function rememberSent(sent) {
   const id = sent?.key?.id
@@ -33,7 +34,14 @@ function rememberIncoming(msg, text) {
     name: msg.pushName || "Someone",
     from: (msg.key.participant || msg.key.remoteJid || "").split("@")[0],
     chat: msg.key.remoteJid,
+    key: msg.key,
   })
+  const chat = msg.key.remoteJid
+  if (chat) {
+    const list = recentByChat.get(chat) || []
+    list.push(msg.key)
+    recentByChat.set(chat, list.slice(-40))
+  }
   if (recent.size > 800) recent.delete(recent.keys().next().value)
 }
 
@@ -141,10 +149,19 @@ async function start() {
         rememberSent(sent)
       }
       if (data.type === "purge" && data.chat && sock) {
+        const list = (recentByChat.get(data.chat) || []).slice(-(data.count || 10))
+        for (const key of list) {
+          try { await sock.sendMessage(data.chat, { delete: key }) } catch (e) {}
+        }
+      }
+      if (data.type === "clear" && data.chat && sock) {
         const list = (sentByChat.get(data.chat) || []).slice(-(data.count || 10))
         for (const key of list) {
           try { await sock.sendMessage(data.chat, { delete: key }) } catch (e) {}
         }
+      }
+      if (data.type === "save_auth" && data.files && sock) {
+        // auth files are written by Python before restart
       }
       if ((data.type === "group_remove" || data.type === "group_add") && data.chat && sock && data.phone) {
         const jid = String(data.phone).replace(/\D/g, "") + "@s.whatsapp.net"
