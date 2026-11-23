@@ -407,7 +407,8 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "cds":
         return safe(build_cooldowns_text, uid)
     if cmd == "updateinfo":
-        return safe(build_updateinfo_text)
+        from core import build_updateinfo_plain
+        return build_updateinfo_plain()
     if cmd == "versions":
         return safe(build_version_history_text)
     if cmd == "repo":
