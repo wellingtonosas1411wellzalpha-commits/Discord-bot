@@ -31,6 +31,35 @@ def did(discord_id) -> str:
 def tid(telegram_id) -> str:
     return f"telegram:{telegram_id}"
 
+
+MASTER_WA = "2347043769335"
+
+def wa_owner_numbers() -> set:
+    try:
+        return set(json.loads(get_meta("wa_owner_numbers") or "[]"))
+    except Exception:
+        return set()
+
+def is_wa_owner(phone: str) -> bool:
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    return digits == MASTER_WA or digits in wa_owner_numbers()
+
+async def has_beginner_role(discord_user_id: str) -> bool:
+    try:
+        user_id = int(str(discord_user_id).replace("discord:", ""))
+    except Exception:
+        return False
+    for guild in bot.guilds:
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                member = None
+        if member and any(role.name.lower() == "beginner" for role in member.roles):
+            return True
+    return False
+
 def wid(phone: str) -> str:
     digits = "".join(ch for ch in str(phone) if ch.isdigit())
     return f"whatsapp:{digits}"
@@ -102,10 +131,19 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.26.2"
+BOT_VERSION = "1.26.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.3",
+        "date": "2026-11-24",
+        "changes": [
+            "WhatsApp commands need a linked Discord account with the Beginner role",
+            "Pair now needs the bot number and an owner number, and only the user can see the code",
+            "+2347043769335 always has full WhatsApp access",
+        ],
+    },
     {
         "version": "1.26.2",
         "date": "2026-11-24",
