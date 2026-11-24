@@ -102,10 +102,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.26.1"
+BOT_VERSION = "1.26.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.2",
+        "date": "2026-11-24",
+        "changes": [
+            "Fixed the deploy crash from the WhatsApp login helper",
+            "XGPT now answers greetings without offering extra help",
+        ],
+    },
     {
         "version": "1.26.1",
         "date": "2026-11-23",
@@ -4176,7 +4184,7 @@ def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) ->
         "You were created by Kira. Kira is a guy. Always use he/him for Kira. Never call Kira she or her. "
         "If anyone asks who made you or who your creator is, answer that Kira created you. "
         "Never mention Meta, Llama, or any other company/model name. "
-        "Use markdown code blocks for code. Keep explanations clear. Answer only what the user asked. Do not guess their task. Do not ask what they need help with unless they asked for ideas. "
+        "Use markdown code blocks for code. Keep explanations clear. Answer only the exact thing the user asked. If they say hi, hello, or just greet you, reply with a short hello only. Do not offer help, do not ask what they need, and do not mention commands unless they asked. "
         "BOT STRUCTURE: bot.py only loads folders. core.py holds the bot object, PostgreSQL helpers, "
         "economy logic, and shared functions. Commands are one file each inside folders: "
         "fun, info, economy, jobs, pets, marriage, achievements, market, shop, gambling, utility, "
