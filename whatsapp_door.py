@@ -246,6 +246,10 @@ def handle_text(text, phone, name, meta=None):
     if not raw.startswith(".") and not raw.startswith("/"):
         words = {part.strip(".,!?").lower() for part in raw.split()}
         if get_meta("wa_gpt_on") == "on" and (words.intersection({"z", "x", "xephon"}) or (meta or {}).get("replyToBot")):
+            if not is_wa_owner(phone):
+                linked = load_links().get(raw_uid)
+                if not (linked and run_async(has_beginner_role(linked))):
+                    return "Link this WhatsApp to a Discord account with the Beginner role first."
             mode = get_meta("wa_gpt_mode") or "normal"
             history = json.loads(get_meta("wa_gpt_history") or "[]")
             try:
