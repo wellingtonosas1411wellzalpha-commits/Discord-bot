@@ -178,6 +178,7 @@ def restore_whatsapp_auth():
         (AUTH_DIR / name).write_bytes(base64.b64decode(content))
 
 def save_whatsapp_auth():
+    import base64
     from core import set_meta
     if not AUTH_DIR.exists():
         return
