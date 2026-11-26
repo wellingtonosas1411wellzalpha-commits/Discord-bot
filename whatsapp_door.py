@@ -222,14 +222,20 @@ def handle_text(text, phone, name, meta=None):
     def tagged(meta, args):
         nums = []
         for item in (meta or {}).get("mentions") or []:
-            digits = "".join(ch for ch in str(item) if ch.isdigit())
-            if digits:
-                nums.append(digits)
+            if isinstance(item, dict):
+                for key in ("phone", "id"):
+                    digits = "".join(ch for ch in str(item.get(key) or "") if ch.isdigit())
+                    if digits:
+                        nums.append(digits)
+            else:
+                digits = "".join(ch for ch in str(item) if ch.isdigit())
+                if digits:
+                    nums.append(digits)
         for part in args:
             digits = "".join(ch for ch in str(part) if ch.isdigit())
             if digits and len(digits) >= 8:
                 nums.append(digits)
-        return nums
+        return list(dict.fromkeys(nums))
     if not parts:
         return "Send .menu"
     cmd = parts[0].lower().lstrip("./")
@@ -623,14 +629,25 @@ def handle_text(text, phone, name, meta=None):
 
     
     if cmd == "mute":
-        nums = tagged(meta, args)
-        if not nums:
+        ids_to_add = set(tagged(meta, args))
+        if not ids_to_add:
             return "Tag the person. Example: .mute @number"
         key = f"mute:{chat}"
         ids = set(json.loads(get_meta(key) or "[]"))
-        ids.add(nums[0])
+        ids.update(ids_to_add)
         set_meta(key, json.dumps(sorted(ids)))
-        return f"Muted {nums[0]}."
+        shown = next((item for item in ids_to_add if len(item) <= 15), sorted(ids_to_add)[0])
+        return f"Muted {shown}."
+    if cmd == "unmute":
+        ids_to_remove = set(tagged(meta, args))
+        key = f"mute:{chat}"
+        ids = set(json.loads(get_meta(key) or "[]"))
+        if not ids_to_remove:
+            set_meta(key, "[]")
+            return "Unmuted everyone in this chat."
+        ids -= ids_to_remove
+        set_meta(key, json.dumps(sorted(ids)))
+        return f"Unmuted {next(iter(ids_to_remove))}."
     if cmd == "antilink":
         state = (args[0].lower() if args else "")
         if state not in ("on", "off"):
@@ -746,24 +763,33 @@ def run():
                 elif kind == "message":
                     try:
                         raw_text = (data.get("text") or "").strip()
+                        from core import canonical_user, get_meta, ncm_enabled, wid, clean_wa
+                        chat = data.get("chat") or ""
+                        sender_ids = {
+                            clean_wa(data.get("from")),
+                            clean_wa(data.get("phone")),
+                            clean_wa(data.get("lid")),
+                        }
+                        sender_ids.discard("")
+                        muted = set(json.loads(get_meta(f"mute:{chat}") or "[]"))
+                        if sender_ids & muted:
+                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
+                            continue
+                        text_lower = raw_text.lower()
+                        if get_meta(f"antilink:{chat}") == "on" and any(bit in text_lower for bit in ("http://", "https://", "www.", "wa.me", "chat.whatsapp.com", "t.me/", "discord.gg", ".com", ".ng", ".app")):
+                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
+                            continue
+                        bad = json.loads(get_meta(f"abw:{chat}") or '{"on": false, "words": []}')
+                        if bad.get("on") and any(word and word in text_lower for word in bad.get("words", [])):
+                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
+                            continue
                         is_command = raw_text.startswith(".") or raw_text.startswith("/")
                         if not is_command:
-                            from core import canonical_user, get_meta, ncm_enabled, wid
                             uid = canonical_user(wid(data.get("from", "")))
                             words = {part.strip(".,!?").lower() for part in raw_text.split()}
                             gpt_open = get_meta("wa_gpt_on") == "on" and bool(words.intersection({"z", "x", "xephon"}) or data.get("replyToBot"))
                             if not gpt_open and not ncm_enabled.get(uid):
                                 continue
-                        from core import get_meta
-                        chat = data.get("chat") or ""
-                        muted = set(json.loads(get_meta(f"mute:{chat}") or "[]"))
-                        if data.get("from") in muted:
-                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
-                            continue
-                        text_lower = raw_text.lower()
-                        if get_meta(f"antilink:{chat}") == "on" and any(bit in text_lower for bit in ("http://", "https://", "www.", ".com", ".ng", "wa.me")):
-                            send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
-                            continue
                         reply = handle_text(
                             raw_text,
                             data.get("from", ""),

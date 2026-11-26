@@ -69,15 +69,39 @@ async function openSocket() {
       if (!text) continue
       const quoted = msg.message.extendedTextMessage?.contextInfo || {}
       rememberIncoming(msg, text)
-      const mentions = (quoted.mentionedJid || msg.message.extendedTextMessage?.contextInfo?.mentionedJid || []).map(j => String(j).split("@")[0])
+      const idOf = (jid) => String(jid || "").split("@")[0].split(":")[0]
+      const participant = msg.key.participant || ""
+      const participantAlt = msg.key.participantAlt || msg.key.participantPn || ""
+      let phone = idOf(participantAlt || msg.key.remoteJidAlt || "")
+      if (!phone && String(participant).endsWith("@lid")) {
+        try {
+          const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(participant)
+          phone = idOf(mapped)
+        } catch (e) {}
+      }
+      const rawMentions = quoted.mentionedJid || msg.message.extendedTextMessage?.contextInfo?.mentionedJid || []
+      const mentions = []
+      for (const jid of rawMentions) {
+        const id = idOf(jid)
+        let mentionPhone = String(jid).endsWith("@s.whatsapp.net") ? id : ""
+        if (!mentionPhone && String(jid).endsWith("@lid")) {
+          try {
+            const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid)
+            mentionPhone = idOf(mapped)
+          } catch (e) {}
+        }
+        mentions.push({ id, phone: mentionPhone, jid })
+      }
       out({
         type: "message",
-        from: (msg.key.participant || msg.key.remoteJid || "").split("@")[0],
+        from: idOf(participant || msg.key.remoteJid),
+        phone,
+        lid: String(participant).endsWith("@lid") ? idOf(participant) : "",
         chat: msg.key.remoteJid,
         name: msg.pushName || "You",
         text,
         quoted: quoted.stanzaId || "",
-        participant: quoted.participant || msg.key.participant || "",
+        participant: participant || msg.key.remoteJid || "",
         isGroup: String(msg.key.remoteJid || "").endsWith("@g.us"),
         replyToBot: Boolean(quoted.stanzaId && sentIds.has(quoted.stanzaId)),
         mentions,
