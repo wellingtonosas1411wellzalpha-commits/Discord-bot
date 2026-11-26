@@ -235,15 +235,15 @@ def handle_text(text, phone, name, meta=None):
     cmd = parts[0].lower().lstrip("./")
     args = parts[1:]
 
-    from core import get_meta, set_meta, ncm_enabled, parse_ncm_request, is_wa_owner, has_beginner_role, load_links
+    from core import get_meta, set_meta, ncm_enabled, parse_ncm_request, is_wa_owner, has_beginner_role, load_links, clean_wa
     if cmd not in ("link", "ping") and not is_wa_owner(phone):
         linked = load_links().get(raw_uid)
         allowed = bool(linked) and run_async(has_beginner_role(linked))
         if not allowed:
             return "Link this WhatsApp to a Discord account with the Beginner role first. Run .link on Discord, then .link <code> here."
     owner_cmds = {"xgpt", "xephongpt", "ncm", "botban", "xban", "unbotban", "unxban", "storage", "clearcache", "reset", "update", "restart", "auth", "antidelete", "antibadword", "mute", "antilink"}
-    if cmd in owner_cmds and not is_wa_owner(phone):
-        return "Owner number only."
+    if cmd in owner_cmds and not is_wa_owner(phone, load_links().get(raw_uid, "")):
+        return f"Owner number only. Your number is {clean_wa(phone)}. On Discord, run .waowner {clean_wa(phone)} or .link this number."
     if not raw.startswith(".") and not raw.startswith("/"):
         words = {part.strip(".,!?").lower() for part in raw.split()}
         if get_meta("wa_gpt_on") == "on" and (words.intersection({"z", "x", "xephon"}) or (meta or {}).get("replyToBot")):

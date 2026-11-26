@@ -40,9 +40,22 @@ def wa_owner_numbers() -> set:
     except Exception:
         return set()
 
-def is_wa_owner(phone: str) -> bool:
-    digits = "".join(ch for ch in str(phone) if ch.isdigit())
-    return digits == MASTER_WA or digits in wa_owner_numbers()
+def clean_wa(phone: str) -> str:
+    raw = str(phone or "").split("@")[0].split(":")[0]
+    return "".join(ch for ch in raw if ch.isdigit())
+
+def is_wa_owner(phone: str, discord_user_id: str = "") -> bool:
+    digits = clean_wa(phone)
+    owners = {clean_wa(item) for item in wa_owner_numbers()}
+    if digits == MASTER_WA or digits in owners:
+        return True
+    try:
+        linked = int(str(discord_user_id).replace("discord:", ""))
+    except Exception:
+        linked = 0
+    if linked and (linked == getattr(bot, "owner_id", None) or linked in getattr(bot, "owner_ids", set())):
+        return True
+    return False
 
 async def has_beginner_role(discord_user_id: str) -> bool:
     try:
@@ -131,10 +144,18 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.26.4"
+BOT_VERSION = "1.26.5"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.5",
+        "date": "2026-11-26",
+        "changes": [
+            "Discord owner now counts as WhatsApp owner after linking",
+            "Added .waowner so you can add your WhatsApp number from Discord",
+        ],
+    },
     {
         "version": "1.26.4",
         "date": "2026-11-24",
