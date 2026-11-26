@@ -65,32 +65,48 @@ async function openSocket() {
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
-      if (!text) continue
-      const quoted = msg.message.extendedTextMessage?.contextInfo || {}
-      rememberIncoming(msg, text)
+      const content = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message
+      const text = content.conversation
+        || content.extendedTextMessage?.text
+        || content.imageMessage?.caption
+        || content.videoMessage?.caption
+        || content.documentMessage?.caption
+        || ""
+      const linkUrl = content.extendedTextMessage?.canonicalUrl
+        || content.extendedTextMessage?.matchedText
+        || content.extendedTextMessage?.text
+        || ""
+      const quoted = content.extendedTextMessage?.contextInfo
+        || content.imageMessage?.contextInfo
+        || content.videoMessage?.contextInfo
+        || {}
+      rememberIncoming(msg, text || linkUrl)
       const idOf = (jid) => String(jid || "").split("@")[0].split(":")[0]
       const participant = msg.key.participant || ""
       const participantAlt = msg.key.participantAlt || msg.key.participantPn || ""
-      let phone = idOf(participantAlt || msg.key.remoteJidAlt || "")
-      if (!phone && String(participant).endsWith("@lid")) {
+      async function phoneFor(jid) {
+        if (!jid) return ""
+        if (String(jid).endsWith("@s.whatsapp.net")) return idOf(jid)
         try {
-          const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(participant)
-          phone = idOf(mapped)
+          if (String(msg.key.remoteJid || "").endsWith("@g.us")) {
+            const meta = await sock.groupMetadata(msg.key.remoteJid)
+            const found = (meta.participants || []).find(p => p.id === jid || idOf(p.id) === idOf(jid))
+            if (found?.phoneNumber) return idOf(found.phoneNumber)
+          }
         } catch (e) {}
+        try {
+          const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid)
+          return idOf(mapped)
+        } catch (e) {}
+        return ""
       }
-      const rawMentions = quoted.mentionedJid || msg.message.extendedTextMessage?.contextInfo?.mentionedJid || []
+      let phone = idOf(participantAlt || msg.key.remoteJidAlt || "") || await phoneFor(participant)
+      const rawMentions = quoted.mentionedJid || content.extendedTextMessage?.contextInfo?.mentionedJid || []
       const mentions = []
       for (const jid of rawMentions) {
         const id = idOf(jid)
-        let mentionPhone = String(jid).endsWith("@s.whatsapp.net") ? id : ""
-        if (!mentionPhone && String(jid).endsWith("@lid")) {
-          try {
-            const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid)
-            mentionPhone = idOf(mapped)
-          } catch (e) {}
-        }
-        mentions.push({ id, phone: mentionPhone, jid })
+        const mentionPhone = String(jid).endsWith("@s.whatsapp.net") ? id : await phoneFor(jid)
+        mentions.push({ id, phone: mentionPhone, jid, name: "" })
       }
       out({
         type: "message",
@@ -99,8 +115,9 @@ async function openSocket() {
         lid: String(participant).endsWith("@lid") ? idOf(participant) : "",
         chat: msg.key.remoteJid,
         name: msg.pushName || "You",
-        text,
+        text: [text, linkUrl].filter(Boolean).join("\n"),
         quoted: quoted.stanzaId || "",
+        quotedParticipant: quoted.participant || "",
         participant: participant || msg.key.remoteJid || "",
         isGroup: String(msg.key.remoteJid || "").endsWith("@g.us"),
         replyToBot: Boolean(quoted.stanzaId && sentIds.has(quoted.stanzaId)),

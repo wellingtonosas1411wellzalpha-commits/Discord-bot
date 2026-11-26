@@ -511,8 +511,9 @@ def handle_text(text, phone, name, meta=None):
         if not info.get("quoted"):
             return "Reply to the message you want to delete."
         return [
-            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("participant")},
+            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("quotedParticipant") or info.get("participant")},
             {"type": "delete", "chat": info.get("chat"), "msgId": info.get("msgId"), "participant": info.get("participant")},
+            "Deleted.",
         ]
     if cmd == "react":
         if not info.get("quoted"):
@@ -636,8 +637,8 @@ def handle_text(text, phone, name, meta=None):
         ids = set(json.loads(get_meta(key) or "[]"))
         ids.update(ids_to_add)
         set_meta(key, json.dumps(sorted(ids)))
-        shown = next((item for item in ids_to_add if len(item) <= 15), sorted(ids_to_add)[0])
-        return f"Muted {shown}."
+        shown = next((item for item in ids_to_add if item.startswith("234") and len(item) <= 15), "")
+        return f"Muted {shown or 'that person'}."
     if cmd == "unmute":
         ids_to_remove = set(tagged(meta, args))
         key = f"mute:{chat}"
@@ -660,12 +661,13 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "clear":
         return {"type": "clear", "chat": chat, "count": 10, "text": "Cleared the last 10 Xephon messages."}
     if cmd == "update":
+        set_meta("wa_update_chat", chat)
         save_whatsapp_auth()
         from core import trigger_render_deploy
         ok, msg = trigger_render_deploy()
         if not ok:
             return f"Could not update.\n{msg}"
-        return "update me"
+        return "Updating ⚡"
 
     return "Unknown command. Send .menu"
 
@@ -741,6 +743,12 @@ def run():
                 kind = data.get("type")
                 if kind in ("code", "ready", "creds"):
                     save_auth(here)
+                if kind == "ready":
+                    from core import get_meta, set_meta, build_updateinfo_text
+                    chat = get_meta("wa_update_chat")
+                    if chat:
+                        set_meta("wa_update_chat", "")
+                        send_line(proc, {"type": "send", "chat": chat, "text": build_updateinfo_text()})
                 if kind == "code":
                     waiter = WAITERS.get(data.get("id"))
                     if waiter:
