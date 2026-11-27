@@ -153,8 +153,9 @@ VERSION_HISTORY = [
         "version": "1.27.2",
         "date": "2026-11-27",
         "changes": [
-            "changes readme text to fit what the bot actually does and it's function"
+            "Updated the README to match what the bot actually does",
         ],
+    },
     {
         "version": "1.27.1",
         "date": "2026-11-27",
