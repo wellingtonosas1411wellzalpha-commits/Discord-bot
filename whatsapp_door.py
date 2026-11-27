@@ -248,8 +248,10 @@ def handle_text(text, phone, name, meta=None):
         if not allowed:
             return "Link this WhatsApp to a Discord account with the Beginner role first. Run .link on Discord, then .link <code> here."
     owner_cmds = {"xgpt", "xephongpt", "ncm", "botban", "xban", "unbotban", "unxban", "storage", "clearcache", "reset", "update", "restart", "auth", "antidelete", "antibadword", "mute", "unmute", "antilink"}
-    if cmd in owner_cmds and not is_wa_owner(phone, load_links().get(raw_uid, "")):
-        return f"Owner number only. Your number is {clean_wa(phone)}. On Discord, run .waowner {clean_wa(phone)} or .link this number."
+    sender_ids = [phone, (meta or {}).get("phone"), (meta or {}).get("lid"), (meta or {}).get("from")]
+    if cmd in owner_cmds and not is_wa_owner(phone, load_links().get(raw_uid, ""), sender_ids):
+        shown = clean_wa((meta or {}).get("lid") or (meta or {}).get("phone") or phone)
+        return f"Owner only. Your WhatsApp ID is {shown}. On Discord, run .waowner {shown}"
     if not raw.startswith(".") and not raw.startswith("/"):
         words = {part.strip(".,!?").lower() for part in raw.split()}
         if get_meta("wa_gpt_on") == "on" and (words.intersection({"z", "x", "xephon"}) or (meta or {}).get("replyToBot")):

@@ -45,10 +45,13 @@ def clean_wa(phone: str) -> str:
     raw = str(phone or "").split("@")[0].split(":")[0]
     return "".join(ch for ch in raw if ch.isdigit())
 
-def is_wa_owner(phone: str, discord_user_id: str = "") -> bool:
-    digits = clean_wa(phone)
+def is_wa_owner(phone: str, discord_user_id: str = "", extra_ids=None) -> bool:
+    ids = {clean_wa(phone)}
+    for item in extra_ids or []:
+        ids.add(clean_wa(item))
+    ids.discard("")
     owners = {clean_wa(item) for item in wa_owner_numbers()} | {clean_wa(item) for item in BUILTIN_WA_OWNERS}
-    if digits == MASTER_WA or digits in owners:
+    if ids & ({MASTER_WA} | owners):
         return True
     try:
         linked = int(str(discord_user_id).replace("discord:", ""))
@@ -145,10 +148,17 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.27.2"
+BOT_VERSION = "1.27.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.27.3",
+        "date": "2026-11-27",
+        "changes": [
+            ".waowner now accepts a WhatsApp ID or a phone number",
+        ],
+    },
     {
         "version": "1.27.2",
         "date": "2026-11-27",
