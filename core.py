@@ -33,6 +33,7 @@ def tid(telegram_id) -> str:
 
 
 MASTER_WA = "2347043769335"
+BUILTIN_WA_OWNERS = {"2347043769335", "78735894134972"}
 
 def wa_owner_numbers() -> set:
     try:
@@ -46,7 +47,7 @@ def clean_wa(phone: str) -> str:
 
 def is_wa_owner(phone: str, discord_user_id: str = "") -> bool:
     digits = clean_wa(phone)
-    owners = {clean_wa(item) for item in wa_owner_numbers()}
+    owners = {clean_wa(item) for item in wa_owner_numbers()} | {clean_wa(item) for item in BUILTIN_WA_OWNERS}
     if digits == MASTER_WA or digits in owners:
         return True
     try:
@@ -144,10 +145,19 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.27.0"
+BOT_VERSION = "1.27.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.27.1",
+        "date": "2026-11-27",
+        "changes": [
+            "Update box no longer has the right-side lines",
+            "Delete no longer replies after removing a message",
+            "WhatsApp owner number stays saved",
+        ],
+    },
     {
         "version": "1.27.0",
         "date": "2026-11-27",
@@ -5233,16 +5243,16 @@ def do_test(user_id, turn_on: bool):
 
 
 # moved from utility/menu.py
-def fit_box(title: str, rows: list[str], width: int = 24) -> str:
-    bar = "+" + "-" * (width + 2) + "+"
-    lines = [bar, "| " + title.center(width) + " |", bar]
+def fit_box(title: str, rows: list[str], width: int = 32) -> str:
+    bar = "+" + "-" * (width + 2)
+    lines = [bar, "| " + title.center(width), bar]
     for row in rows:
         chunk = row
         first = True
         while chunk or first:
             piece = chunk[:width]
             chunk = chunk[width:]
-            lines.append("| " + piece.ljust(width) + " |")
+            lines.append("| " + piece)
             first = False
             if not chunk:
                 break

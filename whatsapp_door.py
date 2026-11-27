@@ -514,7 +514,6 @@ def handle_text(text, phone, name, meta=None):
         return [
             {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": quoted_sender},
             {"type": "delete", "chat": info.get("chat"), "msgId": info.get("msgId"), "participant": info.get("participant")},
-            "Deleted.",
         ]
     if cmd == "react":
         if not info.get("quoted"):
