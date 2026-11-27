@@ -668,7 +668,7 @@ def handle_text(text, phone, name, meta=None):
         ok, msg = trigger_render_deploy()
         if not ok:
             return f"Could not update.\n{msg}"
-        return "Updating ⚡"
+        return "Updating ⚡\nXephon is going offline to apply the latest build.\nBack in a moment."
 
     return "Unknown command. Send .menu"
 
