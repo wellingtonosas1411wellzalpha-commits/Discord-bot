@@ -13,6 +13,8 @@ const sentIds = new Set()
 const sentByChat = new Map()
 const recent = new Map()
 const recentByChat = new Map()
+const groupCache = new Map()
+const phoneCache = new Map()
 
 function rememberSent(sent) {
   const id = sent?.key?.id
@@ -64,6 +66,7 @@ async function openSocket() {
   sock.ev.on("creds.update", saveCreds)
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
+      try {
       if (!msg.message || msg.key.fromMe) continue
       const content = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message
       const text = content.conversation
@@ -84,28 +87,50 @@ async function openSocket() {
       const idOf = (jid) => String(jid || "").split("@")[0].split(":")[0]
       const participant = msg.key.participant || ""
       const participantAlt = msg.key.participantAlt || msg.key.participantPn || ""
+      const chat = msg.key.remoteJid || ""
+      async function groupMeta(chatId) {
+        if (!chatId || !String(chatId).endsWith("@g.us")) return null
+        const hit = groupCache.get(chatId)
+        if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.meta
+        try {
+          const meta = await sock.groupMetadata(chatId)
+          groupCache.set(chatId, { at: Date.now(), meta })
+          return meta
+        } catch (e) {
+          return hit?.meta || null
+        }
+      }
       async function phoneFor(jid) {
         if (!jid) return ""
         if (String(jid).endsWith("@s.whatsapp.net")) return idOf(jid)
+        if (phoneCache.has(jid)) return phoneCache.get(jid)
         try {
-          if (String(msg.key.remoteJid || "").endsWith("@g.us")) {
-            const meta = await sock.groupMetadata(msg.key.remoteJid)
-            const found = (meta.participants || []).find(p => p.id === jid || idOf(p.id) === idOf(jid))
-            if (found?.phoneNumber) return idOf(found.phoneNumber)
+          const meta = await groupMeta(chat)
+          const found = (meta?.participants || []).find(p => p.id === jid || idOf(p.id) === idOf(jid))
+          if (found?.phoneNumber) {
+            const phone = idOf(found.phoneNumber)
+            if (phone) phoneCache.set(jid, phone)
+            return phone || ""
           }
         } catch (e) {}
         try {
           const mapped = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid)
-          return idOf(mapped)
+          const phone = idOf(mapped)
+          if (phone) phoneCache.set(jid, phone)
+          return phone || ""
         } catch (e) {}
+        phoneCache.set(jid, "")
         return ""
       }
-      let phone = idOf(participantAlt || msg.key.remoteJidAlt || "") || await phoneFor(participant)
+      const rawText = [text, linkUrl].filter(Boolean).join("\n").trim()
+      const simple = /^[.\/](ping|menu|help|bal|daily)\b/i.test(rawText)
+      let phone = idOf(participantAlt || msg.key.remoteJidAlt || "")
+      if (!phone && !simple) phone = await phoneFor(participant)
       const rawMentions = quoted.mentionedJid || content.extendedTextMessage?.contextInfo?.mentionedJid || []
       const mentions = []
       for (const jid of rawMentions) {
         const id = idOf(jid)
-        const mentionPhone = String(jid).endsWith("@s.whatsapp.net") ? id : await phoneFor(jid)
+        const mentionPhone = simple ? "" : (String(jid).endsWith("@s.whatsapp.net") ? id : await phoneFor(jid))
         mentions.push({ id, phone: mentionPhone, jid, name: "" })
       }
       out({
@@ -124,6 +149,9 @@ async function openSocket() {
         mentions,
         msgId: msg.key.id || "",
       })
+      } catch (e) {
+        out({ type: "error", error: "message parse failed: " + String(e.message || e) })
+      }
     }
   })
   sock.ev.on("messages.delete", async (item) => {
