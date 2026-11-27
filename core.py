@@ -144,10 +144,19 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.26.7"
+BOT_VERSION = "1.26.8"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.26.8",
+        "date": "2026-11-27",
+        "changes": [
+            "Fixed WhatsApp delete so one failure cannot stop the bot",
+            "Antilink catches more links, including captions and short links",
+            ".unmute is owner only",
+        ],
+    },
     {
         "version": "1.26.7",
         "date": "2026-11-26",

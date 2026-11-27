@@ -176,7 +176,12 @@ async function start() {
         rememberSent(sent)
       }
       if (data.type === "delete" && data.chat && data.msgId && sock) {
-        await sock.sendMessage(data.chat, { delete: { remoteJid: data.chat, fromMe: false, id: data.msgId, participant: data.participant || undefined } })
+        const key = { remoteJid: data.chat, fromMe: false, id: data.msgId, participant: data.participant || undefined }
+        try {
+          await sock.sendMessage(data.chat, { delete: key })
+        } catch (e) {
+          out({ type: "error", error: "delete failed: " + String(e.message || e) })
+        }
       }
       if (data.type === "react" && data.chat && data.msgId && sock) {
         await sock.sendMessage(data.chat, { react: { text: data.emoji || "👍", key: { remoteJid: data.chat, id: data.msgId, participant: data.participant || undefined } } })

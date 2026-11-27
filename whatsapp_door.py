@@ -247,7 +247,7 @@ def handle_text(text, phone, name, meta=None):
         allowed = bool(linked) and run_async(has_beginner_role(linked))
         if not allowed:
             return "Link this WhatsApp to a Discord account with the Beginner role first. Run .link on Discord, then .link <code> here."
-    owner_cmds = {"xgpt", "xephongpt", "ncm", "botban", "xban", "unbotban", "unxban", "storage", "clearcache", "reset", "update", "restart", "auth", "antidelete", "antibadword", "mute", "antilink"}
+    owner_cmds = {"xgpt", "xephongpt", "ncm", "botban", "xban", "unbotban", "unxban", "storage", "clearcache", "reset", "update", "restart", "auth", "antidelete", "antibadword", "mute", "unmute", "antilink"}
     if cmd in owner_cmds and not is_wa_owner(phone, load_links().get(raw_uid, "")):
         return f"Owner number only. Your number is {clean_wa(phone)}. On Discord, run .waowner {clean_wa(phone)} or .link this number."
     if not raw.startswith(".") and not raw.startswith("/"):
@@ -510,8 +510,9 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "delete":
         if not info.get("quoted"):
             return "Reply to the message you want to delete."
+        quoted_sender = info.get("quotedParticipant") or info.get("participant")
         return [
-            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": info.get("quotedParticipant") or info.get("participant")},
+            {"type": "delete", "chat": info.get("chat"), "msgId": info.get("quoted"), "participant": quoted_sender},
             {"type": "delete", "chat": info.get("chat"), "msgId": info.get("msgId"), "participant": info.get("participant")},
             "Deleted.",
         ]
@@ -784,7 +785,8 @@ def run():
                             send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
                             continue
                         text_lower = raw_text.lower()
-                        if get_meta(f"antilink:{chat}") == "on" and any(bit in text_lower for bit in ("http://", "https://", "www.", "wa.me", "chat.whatsapp.com", "t.me/", "discord.gg", ".com", ".ng", ".app")):
+                        link_bits = ("http://", "https://", "www.", "wa.me", "chat.whatsapp.com", "t.me/", "discord.gg", "bit.ly", "youtu", ".com", ".ng", ".app", ".net", ".org")
+                        if get_meta(f"antilink:{chat}") == "on" and any(bit in text_lower for bit in link_bits):
                             send_line(proc, {"type": "delete", "chat": chat, "msgId": data.get("msgId"), "participant": data.get("participant")})
                             continue
                         bad = json.loads(get_meta(f"abw:{chat}") or '{"on": false, "words": []}')
