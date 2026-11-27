@@ -3,7 +3,7 @@
 <h1 align="center"><b>🤖 XEPHON CORE</b></h1>
 
 <p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=💯+ADVANCED+DISCORD+ECONOMY+BOT+💯;👑+XEPHON+👑+%7C+⚡+FAST+⚡+%7C+😎+COOL+😎;🧑‍💻+DEVELOPED+BY+KIRA+🥇" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=36&duration=2800&pause=900&color=00E5FF&center=true&vCenter=true&width=900&lines=💯+ADVANCED+ECONOMY+BOT+💯;👑+XEPHON+👑+%7C+⚡+FAST+⚡+%7C+😎+COOL+😎;🧑‍💻+DEVELOPED+BY+KIRA+🥇" />
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ## 🌟 About Xephon
 
-Xephon is a next-generation **Discord bot** built for servers that want a full economy, levels, jobs, pets, and games in one system.
+Xephon is a next-generation **bot** built for servers and groups that want a full economy, levels, jobs, pets, and games in one system.
 
 > 👑 **Engineered & Developed by KIRA**
 
@@ -167,7 +167,7 @@ Built by **kIRA**.
 🐛 **Report issues so Xephon gets sharper**
 
 <h3 align="center">
-  ✨ Built for the Future of Discord Servers ✨
+  ✨ Built for the Future of Discord Servers and WhatsApp groups✨
 </h3>
 
 <!-- ================= END OF README ================= -->
