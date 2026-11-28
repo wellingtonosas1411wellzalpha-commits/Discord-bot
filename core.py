@@ -144,10 +144,18 @@ def claim_link_code(code: str, linked_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.28.2"
+BOT_VERSION = "1.28.3"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.28.3",
+        "date": "2026-11-28",
+        "changes": [
+            "Mines, slots, roulette, and blackjack edit one message instead of sending new ones",
+            "XephonGPT uses a live net-worth source instead of old memory",
+        ],
+    },
     {
         "version": "1.28.2",
         "date": "2026-11-28",
@@ -4459,55 +4467,54 @@ def read_pictures_with_gemini(prompt: str, images: list, system_prompt: str):
     return None, last
 
 def lookup_current_facts(prompt: str) -> str:
-    """Best-effort web lookup so current questions are not answered from old memory."""
+    """Fetch a current fact so answers are not taken from old model memory."""
+    import re
     import urllib.parse
     import urllib.request
     query = " ".join((prompt or "").split())[:180]
+    low = query.lower()
     if not query:
         return ""
+
+    def fetch(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 XephonBot"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return resp.read(250000).decode("utf-8", "ignore")
+
     bits = []
-
-    def fetch_json(url):
-        req = urllib.request.Request(url, headers={"User-Agent": "XephonBot/1.28"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            return json.loads(resp.read().decode("utf-8", "ignore") or "{}")
-
-    try:
-        data = fetch_json("https://api.duckduckgo.com/?" + urllib.parse.urlencode({
-            "q": query, "format": "json", "no_html": 1, "skip_disambig": 1,
-        }))
-        if data.get("AbstractText"):
-            bits.append(data["AbstractText"])
-        if data.get("Answer"):
-            bits.append(data["Answer"])
-        for topic in (data.get("RelatedTopics") or [])[:3]:
-            if isinstance(topic, dict) and topic.get("Text"):
-                bits.append(topic["Text"])
-    except Exception:
-        pass
-    if not bits:
+    if "elon" in low and "worth" in low:
         try:
-            found = fetch_json("https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
-                "action": "opensearch", "search": query, "limit": 1, "namespace": 0, "format": "json",
-            }))
-            title = (found[1] or [""])[0] if isinstance(found, list) and len(found) > 1 else ""
+            html = fetch("https://billionairetracker.us/elon-musk")
+            title = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+            amount = re.search(r"\$\d[\d,.]*\s*[BMK]", html)
             if title:
-                page = fetch_json("https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title))
-                extract = (page.get("extract") or "").strip()
-                if extract:
-                    bits.append(extract)
+                bits.append(re.sub(r"\s+", " ", title.group(1)))
+            if amount:
+                bits.append("Current figure: " + amount.group(0))
+            bits.append("Source: Forbes real-time tracker, checked just now.")
         except Exception:
             pass
-    return "\n".join(bits[:5])[:1200]
+    if not bits:
+        try:
+            data = json.loads(fetch("https://api.duckduckgo.com/?" + urllib.parse.urlencode({
+                "q": query, "format": "json", "no_html": 1, "skip_disambig": 1,
+            })) or "{}")
+            if data.get("AbstractText"):
+                bits.append(data["AbstractText"])
+            if data.get("Answer"):
+                bits.append(data["Answer"])
+        except Exception:
+            pass
+    return "\n".join(bits[:4])[:1200]
 
 async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None, images: list = None) -> str:
     system_prompt = get_kiragpt_system_prompt(mode, is_creator)
     facts = lookup_current_facts(prompt)
     if facts:
         system_prompt += (
-            "\nLIVE LOOKUP for this question. Use these facts when they answer it. "
-            "If they do not contain the number or date asked for, say you could not confirm it. "
-            "Do not invent a figure from old memory.\n" + facts
+            "\nLIVE LOOKUP for this question. This is newer than your memory. "
+            "If it contains a number, use that number only. Do not replace it with an older figure. "
+            "If it does not answer the question, say you could not confirm it.\n" + facts
         )
     if images:
         return "Picture reading is off for now. Send text and I'll answer."

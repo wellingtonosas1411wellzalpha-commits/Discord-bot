@@ -405,48 +405,51 @@ def handle_text(text, phone, name, meta=None):
     if cmd == "roulette":
         if len(args) < 2:
             return "Usage: .roulette <red/black/green> <amount>"
-        box = {"text": ""}
+        actions = []
         async def send_func(t):
-            box["text"] = t
+            actions.append({"type": "send", "chat": chat, "text": t, "game": True, "from": phone})
             return None
         async def edit_func(message, t):
-            box["text"] = t
+            actions.append({"type": "edit", "chat": chat, "text": t, "game": True, "from": phone})
         run_async(run_roulette(uid, args[0], args[1], send_func, edit_func))
-        return box["text"] or "Roulette failed."
+        return actions or "Roulette failed."
     if cmd == "slot":
         if not args:
             return "Usage: .slot <amount>"
-        box = {"text": ""}
+        actions = []
         async def send_func(t):
-            box["text"] = t
+            actions.append({"type": "send", "chat": chat, "text": t, "game": True, "from": phone})
             return None
         async def edit_func(message, t):
-            box["text"] = t
+            actions.append({"type": "edit", "chat": chat, "text": t, "game": True, "from": phone})
         run_async(run_slot(uid, args[0], send_func, edit_func))
-        return box["text"] or "Slot failed."
+        return actions or "Slot failed."
     if cmd in ("mines", "mine"):
         if not args:
             return "Usage: .mines <bet> [mines], .mines <1-25>, or .mines cashout"
         if args[0].lower() == "cashout":
-            return safe(cashout_mines, uid)
+            text = safe(cashout_mines, uid)
+            return {"type": "edit", "chat": chat, "text": text, "game": True, "from": phone}
         if uid in active_mines_games:
             if len(args) != 1:
                 return "Type .mines <1-25> to dig or .mines cashout"
-            return safe(dig_mines, uid, args[0])
+            text = safe(dig_mines, uid, args[0])
+            return {"type": "edit", "chat": chat, "text": text, "game": True, "from": phone}
         bet_str, mines_str = args[0], args[1] if len(args) > 1 else None
         if mines_str and bet_str.isdigit() and mines_str.isdigit():
             first, second = int(bet_str), int(mines_str)
             if 1 <= first <= 24 and second > 24:
                 bet_str, mines_str = mines_str, bet_str
-        return safe(start_mines, uid, bet_str, mines_str)
+        text = safe(start_mines, uid, bet_str, mines_str)
+        return {"type": "send", "chat": chat, "text": text, "game": True, "from": phone}
     if cmd in ("blackjack", "bj"):
         if not args:
             return "Usage: .blackjack <bet>, hit, or stand"
         if args[0].lower() == "hit":
-            return safe(hit_blackjack, uid)
+            return {"type": "edit", "chat": chat, "text": safe(hit_blackjack, uid), "game": True, "from": phone}
         if args[0].lower() == "stand":
-            return safe(stand_blackjack, uid)
-        return safe(start_blackjack, uid, args[0])
+            return {"type": "edit", "chat": chat, "text": safe(stand_blackjack, uid), "game": True, "from": phone}
+        return {"type": "send", "chat": chat, "text": safe(start_blackjack, uid, args[0]), "game": True, "from": phone}
     if cmd == "8ball":
         return safe(get_8ball_answer)
     if cmd == "joke":
@@ -824,7 +827,7 @@ def run():
                         if isinstance(item, dict):
                             item.setdefault("chat", data.get("chat"))
                             send_line(proc, item)
-                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll", "image", "clear", "purge"):
+                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll", "image", "clear", "purge", "edit"):
                                 send_line(proc, {
                                     "type": "send",
                                     "chat": data.get("chat"),

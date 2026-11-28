@@ -15,6 +15,7 @@ const recent = new Map()
 const recentByChat = new Map()
 const groupCache = new Map()
 const phoneCache = new Map()
+const gameKeys = new Map()
 
 function rememberSent(sent) {
   const id = sent?.key?.id
@@ -203,7 +204,7 @@ async function start() {
       if (data.type === "send" && data.chat && data.text && sock) {
         const payload = { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] }
         let sent = null
-        if (data.msgId) {
+        if (data.msgId && !data.game) {
           try {
             sent = await sock.sendMessage(data.chat, payload, {
               quoted: {
@@ -215,10 +216,26 @@ async function start() {
             sent = null
           }
         }
-        if (!sent) {
-          sent = await sock.sendMessage(data.chat, payload)
-        }
+        if (!sent) sent = await sock.sendMessage(data.chat, payload)
         rememberSent(sent)
+        if (data.game && sent?.key) gameKeys.set(data.chat + ":" + (data.from || ""), sent.key)
+      }
+      if (data.type === "edit" && data.chat && data.text && sock) {
+        const key = gameKeys.get(data.chat + ":" + (data.from || ""))
+        try {
+          if (key) {
+            await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000), edit: key })
+          } else {
+            const sent = await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
+            rememberSent(sent)
+            if (data.game && sent?.key) gameKeys.set(data.chat + ":" + (data.from || ""), sent.key)
+          }
+        } catch (e) {
+          try {
+            const sent = await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000) })
+            rememberSent(sent)
+          } catch (err) {}
+        }
       }
       if (data.type === "delete" && data.chat && data.msgId && sock) {
         const key = { remoteJid: data.chat, fromMe: false, id: data.msgId, participant: data.participant || undefined }
