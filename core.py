@@ -144,10 +144,18 @@ def claim_link_code(code: str, linked_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.28.1"
+BOT_VERSION = "1.28.2"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.28.2",
+        "date": "2026-11-28",
+        "changes": [
+            "A failed WhatsApp reply can no longer take the bot offline",
+            "Update paste uses the plain text so it cannot crash the door",
+        ],
+    },
     {
         "version": "1.28.1",
         "date": "2026-11-28",

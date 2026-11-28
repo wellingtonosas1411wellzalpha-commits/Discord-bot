@@ -753,11 +753,14 @@ def run():
                 if kind in ("code", "ready", "creds"):
                     save_auth(here)
                 if kind == "ready":
-                    from core import get_meta, set_meta, build_updateinfo_text
-                    chat = get_meta("wa_update_chat")
-                    if chat:
-                        set_meta("wa_update_chat", "")
-                        send_line(proc, {"type": "send", "chat": chat, "text": build_updateinfo_text()})
+                    try:
+                        from core import get_meta, set_meta, build_updateinfo_plain
+                        chat = get_meta("wa_update_chat")
+                        if chat:
+                            set_meta("wa_update_chat", "")
+                            send_line(proc, {"type": "send", "chat": chat, "text": build_updateinfo_plain()})
+                    except Exception as e:
+                        print(f"WhatsApp update paste failed: {e}")
                 if kind == "code":
                     waiter = WAITERS.get(data.get("id"))
                     if waiter:

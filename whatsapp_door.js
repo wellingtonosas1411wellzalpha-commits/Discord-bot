@@ -201,15 +201,23 @@ async function start() {
     try {
       data = JSON.parse(line)
       if (data.type === "send" && data.chat && data.text && sock) {
-        const quoted = data.msgId ? {
-          key: { remoteJid: data.chat, id: data.msgId, fromMe: false, participant: data.participant || undefined },
-          message: { conversation: data.quote || "" },
-        } : undefined
-        const sent = await sock.sendMessage(
-          data.chat,
-          { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] },
-          quoted ? { quoted } : undefined,
-        )
+        const payload = { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] }
+        let sent = null
+        if (data.msgId) {
+          try {
+            sent = await sock.sendMessage(data.chat, payload, {
+              quoted: {
+                key: { remoteJid: data.chat, id: data.msgId, fromMe: false, participant: data.participant || undefined },
+                message: { conversation: data.quote || "" },
+              },
+            })
+          } catch (e) {
+            sent = null
+          }
+        }
+        if (!sent) {
+          sent = await sock.sendMessage(data.chat, payload)
+        }
         rememberSent(sent)
       }
       if (data.type === "delete" && data.chat && data.msgId && sock) {
@@ -284,4 +292,11 @@ async function start() {
 start().catch((e) => {
   out({ type: "error", error: String(e) })
   process.exit(1)
+})
+
+process.on("uncaughtException", (err) => {
+  out({ type: "error", error: "uncaught: " + String(err && err.message || err) })
+})
+process.on("unhandledRejection", (err) => {
+  out({ type: "error", error: "rejection: " + String(err && err.message || err) })
 })
