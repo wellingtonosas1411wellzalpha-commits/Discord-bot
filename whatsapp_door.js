@@ -77,7 +77,6 @@ async function openSocket() {
         || ""
       const linkUrl = content.extendedTextMessage?.canonicalUrl
         || content.extendedTextMessage?.matchedText
-        || content.extendedTextMessage?.text
         || ""
       const quoted = content.extendedTextMessage?.contextInfo
         || content.imageMessage?.contextInfo
@@ -142,7 +141,7 @@ async function openSocket() {
         lid: String(participant).endsWith("@lid") ? idOf(participant) : "",
         chat: msg.key.remoteJid,
         name: msg.pushName || "You",
-        text: [text, linkUrl].filter(Boolean).join("\n"),
+        text: [text, linkUrl && linkUrl !== text ? linkUrl : ""].filter(Boolean).join("\n"),
         quoted: quoted.stanzaId || "",
         quotedParticipant: quoted.participant || "",
         participant: participant || msg.key.remoteJid || "",
@@ -202,7 +201,15 @@ async function start() {
     try {
       data = JSON.parse(line)
       if (data.type === "send" && data.chat && data.text && sock) {
-        const sent = await sock.sendMessage(data.chat, { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] })
+        const quoted = data.msgId ? {
+          key: { remoteJid: data.chat, id: data.msgId, fromMe: false, participant: data.participant || undefined },
+          message: { conversation: data.quote || "" },
+        } : undefined
+        const sent = await sock.sendMessage(
+          data.chat,
+          { text: String(data.text).slice(0, 4000), mentions: data.mentions || [] },
+          quoted ? { quoted } : undefined,
+        )
         rememberSent(sent)
       }
       if (data.type === "delete" && data.chat && data.msgId && sock) {

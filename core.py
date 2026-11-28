@@ -144,10 +144,19 @@ def claim_link_code(code: str, linked_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.28.0"
+BOT_VERSION = "1.28.1"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.28.1",
+        "date": "2026-11-28",
+        "changes": [
+            ".mines or .mine with a number digs that slot",
+            "WhatsApp replies quote your message",
+            "XephonGPT looks up current facts before answering",
+        ],
+    },
     {
         "version": "1.28.0",
         "date": "2026-11-28",
@@ -4441,8 +4450,57 @@ def read_pictures_with_gemini(prompt: str, images: list, system_prompt: str):
             last = e
     return None, last
 
+def lookup_current_facts(prompt: str) -> str:
+    """Best-effort web lookup so current questions are not answered from old memory."""
+    import urllib.parse
+    import urllib.request
+    query = " ".join((prompt or "").split())[:180]
+    if not query:
+        return ""
+    bits = []
+
+    def fetch_json(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "XephonBot/1.28"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            return json.loads(resp.read().decode("utf-8", "ignore") or "{}")
+
+    try:
+        data = fetch_json("https://api.duckduckgo.com/?" + urllib.parse.urlencode({
+            "q": query, "format": "json", "no_html": 1, "skip_disambig": 1,
+        }))
+        if data.get("AbstractText"):
+            bits.append(data["AbstractText"])
+        if data.get("Answer"):
+            bits.append(data["Answer"])
+        for topic in (data.get("RelatedTopics") or [])[:3]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                bits.append(topic["Text"])
+    except Exception:
+        pass
+    if not bits:
+        try:
+            found = fetch_json("https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
+                "action": "opensearch", "search": query, "limit": 1, "namespace": 0, "format": "json",
+            }))
+            title = (found[1] or [""])[0] if isinstance(found, list) and len(found) > 1 else ""
+            if title:
+                page = fetch_json("https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title))
+                extract = (page.get("extract") or "").strip()
+                if extract:
+                    bits.append(extract)
+        except Exception:
+            pass
+    return "\n".join(bits[:5])[:1200]
+
 async def generate_code_response(prompt: str, mode: str = "normal", is_creator: bool = False, history: list = None, images: list = None) -> str:
     system_prompt = get_kiragpt_system_prompt(mode, is_creator)
+    facts = lookup_current_facts(prompt)
+    if facts:
+        system_prompt += (
+            "\nLIVE LOOKUP for this question. Use these facts when they answer it. "
+            "If they do not contain the number or date asked for, say you could not confirm it. "
+            "Do not invent a figure from old memory.\n" + facts
+        )
     if images:
         return "Picture reading is off for now. Send text and I'll answer."
     if not groq_client:

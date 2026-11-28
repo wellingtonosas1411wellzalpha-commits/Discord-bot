@@ -424,7 +424,7 @@ def handle_text(text, phone, name, meta=None):
             box["text"] = t
         run_async(run_slot(uid, args[0], send_func, edit_func))
         return box["text"] or "Slot failed."
-    if cmd == "mines":
+    if cmd in ("mines", "mine"):
         if not args:
             return "Usage: .mines <bet> [mines], .mines <1-25>, or .mines cashout"
         if args[0].lower() == "cashout":
@@ -821,10 +821,24 @@ def run():
                         if isinstance(item, dict):
                             item.setdefault("chat", data.get("chat"))
                             send_line(proc, item)
-                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll", "image"):
-                                send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item.get("text")})
+                            if item.get("text") and item.get("type") not in ("ptag", "send", "react", "delete", "poll", "image", "clear", "purge"):
+                                send_line(proc, {
+                                    "type": "send",
+                                    "chat": data.get("chat"),
+                                    "text": item.get("text"),
+                                    "msgId": data.get("msgId"),
+                                    "participant": data.get("participant"),
+                                    "quote": raw_text[:120],
+                                })
                         else:
-                            send_line(proc, {"type": "send", "chat": data.get("chat"), "text": item})
+                            send_line(proc, {
+                                "type": "send",
+                                "chat": data.get("chat"),
+                                "text": item,
+                                "msgId": data.get("msgId"),
+                                "participant": data.get("participant"),
+                                "quote": raw_text[:120],
+                            })
             code = proc.wait()
             LAST_ERROR["text"] = f"WhatsApp door stopped ({code})"
         except Exception as e:
