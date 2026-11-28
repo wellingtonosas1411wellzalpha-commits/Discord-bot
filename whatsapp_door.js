@@ -123,14 +123,16 @@ async function openSocket() {
         return ""
       }
       const rawText = [text, linkUrl].filter(Boolean).join("\n").trim()
-      const simple = /^[.\/](ping|menu|help|bal|daily)\b/i.test(rawText)
+      const needsPhone = /^[.\/](link|mute|unmute|kick|ban)\b/i.test(rawText)
       let phone = idOf(participantAlt || msg.key.remoteJidAlt || "")
-      if (!phone && !simple) phone = await phoneFor(participant)
+      if (!phone && needsPhone) phone = await phoneFor(participant)
       const rawMentions = quoted.mentionedJid || content.extendedTextMessage?.contextInfo?.mentionedJid || []
       const mentions = []
       for (const jid of rawMentions) {
         const id = idOf(jid)
-        const mentionPhone = simple ? "" : (String(jid).endsWith("@s.whatsapp.net") ? id : await phoneFor(jid))
+        const mentionPhone = needsPhone
+          ? (String(jid).endsWith("@s.whatsapp.net") ? id : await phoneFor(jid))
+          : (String(jid).endsWith("@s.whatsapp.net") ? id : (phoneCache.get(jid) || ""))
         mentions.push({ id, phone: mentionPhone, jid, name: "" })
       }
       out({

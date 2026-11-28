@@ -197,7 +197,7 @@ def safe(fn, *args):
 
 def handle_text(text, phone, name, meta=None):
     from core import (
-        wid, canonical_user, claim_link_code, build_balance_text, get_balance,
+        wid, canonical_user, claim_link_code, build_balance_text, get_balance, active_mines_games,
         do_daily, do_work, do_fish, do_beg, do_dig, do_withdraw, do_deposit,
         do_donate, do_rob, take_loan, pay_loan, build_jobs_list_text,
         build_myjob_text, set_job, build_leaderboard_text, build_rank_text,
@@ -426,12 +426,19 @@ def handle_text(text, phone, name, meta=None):
         return box["text"] or "Slot failed."
     if cmd == "mines":
         if not args:
-            return "Usage: .mines <bet>, .mines <1-25>, or .mines cashout"
+            return "Usage: .mines <bet> [mines], .mines <1-25>, or .mines cashout"
         if args[0].lower() == "cashout":
             return safe(cashout_mines, uid)
-        if args[0].isdigit() and int(args[0]) <= 25 and len(args) == 1:
+        if uid in active_mines_games:
+            if len(args) != 1:
+                return "Type .mines <1-25> to dig or .mines cashout"
             return safe(dig_mines, uid, args[0])
-        return safe(start_mines, uid, args[0], args[1] if len(args) > 1 else None)
+        bet_str, mines_str = args[0], args[1] if len(args) > 1 else None
+        if mines_str and bet_str.isdigit() and mines_str.isdigit():
+            first, second = int(bet_str), int(mines_str)
+            if 1 <= first <= 24 and second > 24:
+                bet_str, mines_str = mines_str, bet_str
+        return safe(start_mines, uid, bet_str, mines_str)
     if cmd in ("blackjack", "bj"):
         if not args:
             return "Usage: .blackjack <bet>, hit, or stand"
@@ -659,9 +666,9 @@ def handle_text(text, phone, name, meta=None):
         set_meta(f"antilink:{chat}", state)
         return f"Antilink is {state}."
     if cmd == "purge":
-        return {"type": "purge", "chat": chat, "count": 10, "text": "Purged the last 10 messages."}
+        return {"type": "purge", "chat": chat, "count": 10}
     if cmd == "clear":
-        return {"type": "clear", "chat": chat, "count": 10, "text": "Cleared the last 10 Xephon messages."}
+        return {"type": "clear", "chat": chat, "count": 10}
     if cmd == "update":
         set_meta("wa_update_chat", chat)
         save_whatsapp_auth()

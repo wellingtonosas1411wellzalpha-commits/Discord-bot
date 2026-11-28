@@ -28,10 +28,6 @@ def did(discord_id) -> str:
     """Namespaced key for a Discord user's balance."""
     return f"discord:{discord_id}"
 
-def tid(telegram_id) -> str:
-    return f"telegram:{telegram_id}"
-
-
 MASTER_WA = "2347043769335"
 BUILTIN_WA_OWNERS = {"2347043769335", "78735894134972"}
 
@@ -108,7 +104,7 @@ def make_link_code(discord_user_id: str) -> str:
     set_meta("link_codes", json.dumps(codes))
     return code
 
-def claim_link_code(code: str, telegram_user_id: str):
+def claim_link_code(code: str, linked_id: str):
     raw = get_meta("link_codes") or "{}"
     try:
         codes = json.loads(raw)
@@ -120,25 +116,25 @@ def claim_link_code(code: str, telegram_user_id: str):
     codes.pop(str(code), None)
     set_meta("link_codes", json.dumps(codes))
     links = load_links()
-    links[telegram_user_id] = discord_user_id
-    links[discord_user_id] = telegram_user_id
+    links[linked_id] = discord_user_id
+    links[discord_user_id] = linked_id
     save_links(links)
     try:
-        tg_bal = get_balance(telegram_user_id)
+        old_bal = get_balance(linked_id)
         dc_bal = get_balance(discord_user_id)
         update_balance(
             discord_user_id,
-            wallet=dc_bal["wallet"] + tg_bal["wallet"],
-            bank=dc_bal["bank"] + tg_bal["bank"],
+            wallet=dc_bal["wallet"] + old_bal["wallet"],
+            bank=dc_bal["bank"] + old_bal["bank"],
         )
-        update_balance(telegram_user_id, wallet=0, bank=0)
-        tg_level = get_level_data(telegram_user_id)
+        update_balance(linked_id, wallet=0, bank=0)
+        old_level = get_level_data(linked_id)
         dc_level = get_level_data(discord_user_id)
-        if tg_level["xp"] > dc_level["xp"]:
+        if old_level["xp"] > dc_level["xp"]:
             conn, cur = get_db()
             cur.execute(
                 "UPDATE levels SET xp = %s, level = %s WHERE user_id = %s",
-                (tg_level["xp"], tg_level["level"], discord_user_id),
+                (old_level["xp"], old_level["level"], discord_user_id),
             )
             conn.commit()
             cur.close()
@@ -148,10 +144,23 @@ def claim_link_code(code: str, telegram_user_id: str):
     return discord_user_id
 
 BOT_START_TIME = time.time()
-BOT_VERSION = "1.27.4"
+BOT_VERSION = "1.28.0"
 
 # Newest version first. Update this on every change.
 VERSION_HISTORY = [
+    {
+        "version": "1.28.0",
+        "date": "2026-11-28",
+        "changes": [
+            "Removed leftover Telegram code",
+            "XephonGPT no longer has a reply limit",
+            "Mines accepts bet then mines, or mines then bet",
+            "Slots now say Xephon",
+            "Clear and purge stay silent",
+            "XephonGPT knows 28 November 2026 is today",
+            "New Xephon logo",
+        ],
+    },
     {
         "version": "1.27.4",
         "date": "2026-11-27",
@@ -3147,7 +3156,7 @@ SLOT_WIN_MULTIPLIER = 2
 
 def build_slot_spin_text(spin_display: str, footer: str = "🔄 Spinning..."):
     return (
-        "🎰 *AZAHRA SLOTS* 🎰\n"
+        "🎰 *XEPHON SLOTS* 🎰\n"
         "──────────────────\n"
         f"[ {spin_display} ]\n"
         "──────────────────\n"
@@ -4322,6 +4331,8 @@ def get_joke():
 def get_kiragpt_system_prompt(mode: str = "normal", is_creator: bool = False) -> str:
     base = (
         "You are XephonGPT, a coding assistant built into the Xephon Discord bot. "
+        "Today is Saturday, 28 November 2026. That date is the present, not the future. "
+        "Do not say your knowledge ends in 2024, and do not call 2026 a future date. "
         "You were created by Kira. Kira is a guy. Always use he/him for Kira. Never call Kira she or her. "
         "If anyone asks who made you or who your creator is, answer that Kira created you. "
         "Never mention Meta, Llama, or any other company/model name. "
@@ -5086,15 +5097,6 @@ async def handle_kiragpt_message(user, prompt: str, send_func, images: list = No
     session = get_kiragpt_session(user_id)
     is_creator = is_kira_creator(user)
 
-    # Rate limit for non-admins
-    if not is_creator and not test_mode_on(user_id):
-        if get_kiragpt_reply_count(user_id) >= MAX_REPLIES_FOR_NORMAL_USERS:
-            await send_func(
-                f"🚫 You have reached the limit of **{MAX_REPLIES_FOR_NORMAL_USERS} replies** "
-                f"for regular users.\nAn administrator can lift this limit."
-            )
-            return
-
     # Handle mode switching
     lower = prompt.strip().lower()
     if lower in ("wild on", "wild mode on"):
@@ -5129,9 +5131,6 @@ async def handle_kiragpt_message(user, prompt: str, send_func, images: list = No
     session["history"].append({"role": "assistant", "content": reply_text})
     if len(session["history"]) > 20:
         session["history"] = session["history"][-20:]
-
-    if not is_creator:
-        increment_kiragpt_reply_count(user_id)
 
     if len(reply_text) <= 1900:
         await send_func(reply_text)

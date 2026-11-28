@@ -13,7 +13,7 @@ async def purge_slash(interaction: discord.Interaction):
             deleted += 1
         except Exception:
             pass
-    await interaction.followup.send(f"Purged {deleted} message(s).", ephemeral=True)
+    await interaction.followup.send("Done.", ephemeral=True, delete_after=1)
 
 @bot.command(name="purge")
 async def purge_prefix(ctx: commands.Context):
@@ -44,7 +44,7 @@ async def clear_slash(interaction: discord.Interaction):
                 pass
             if deleted >= 10:
                 break
-    await interaction.followup.send(f"Cleared {deleted} Xephon message(s).", ephemeral=True)
+    await interaction.followup.send("Done.", ephemeral=True, delete_after=1)
 
 @bot.command(name="clear")
 async def clear_prefix(ctx: commands.Context):
